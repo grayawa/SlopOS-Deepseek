@@ -1,0 +1,35 @@
+[2J[H
+[2;27H[38;2;0;170;170mLimine 12.5.2 (x86-64, BIOS)[0m
+
+
+
+[12;1H                                    [7m SlopOS [27m
+[4;22H[38;2;0;170;0mARROWS[0m Select    [38;2;0;170;0mENTER[0m Boot    [38;2;0;170;0mE[0m Edit[6;34H[38;2;0;170;0mB[0m Blank Entry[13;1H
+
+[23;26H[2K[38;2;0;170;0mBooting automatically in [38;2;85;255;85m5[38;2;0;170;0m...[0m[23;26H[2K[38;2;0;170;0mBooting automatically in [38;2;85;255;85m4[38;2;0;170;0m...[0m[23;26H[2K[38;2;0;170;0mBooting automatically in [38;2;85;255;85m3[38;2;0;170;0m...[0m[2K[2J[Hlimine: Loading executable `boot():/boot/slopos.elf`...
+
+
+[SlopOS] Kernel started!
+[SlopOS] Checking boot responses...
+[SlopOS] Framebuffer OK, checking HHDM...
+[SlopOS] FB phys: 0xFFFF8000FD000000
+[SlopOS] HHDM off: 0xFFFF800000000000
+[SlopOS] Clearing screen...
+[SlopOS] Screen cleared, drawing UI...
+[SlopOS] Bootloader: Limine 12.5.2
+[SlopOS] UI drawn, entering idle loop.
+[SlopOS] Initializing PMM...
+[PMM] Total usable: 1022 MB
+[PMM] Initialized. Free: 1022 MB
+[SlopOS] Initializing GDT...
+[SlopOS] Initializing IDT...
+[SlopOS] IDT initialized, PIC remapped, interrupts enabled
+[SlopOS] Initializing mouse...
+[Mouse] PS/2 mouse initialized
+[SlopOS] Initializing window manager...
+[WM] init start
+[WM] init done
+[WM] create_window
+[WM] create_window done
+[WM] draw_all start
+[WM] draw_all done

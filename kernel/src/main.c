@@ -415,17 +415,88 @@ void _start(void) {
     wm_init(fb->width, fb->height);
 
     /* Create a terminal window */
-    struct window *term = wm_create_window(50, 50, 500, 300, "Terminal");
+    struct window *term = wm_create_window(50, 50, 480, 320, "Terminal");
     if (term) wm_focus_window(term);
 
+    /* Redraw desktop */
     wm_draw_all();
+
+    int last_mx = 400, last_my = 300;
 
     for (;;) {
         __asm__("hlt");
+
         int c = keyboard_getchar();
+        int mx = mouse_get_x();
+        int my = mouse_get_y();
+        int mb = mouse_get_buttons();
+        int redraw = 0;
+
+        if (mx < 0) mx = 0;
+        if (my < 0) my = 0;
+        if (mx >= (int)fb->width) mx = fb->width - 1;
+        if (my >= (int)fb->height) my = fb->height - 1;
+
+        /* Handle keyboard input */
         if (c > 0) {
-            serial_write_str("[SlopOS] Key\n");
+            struct window *focused = wm_focused();
+            if (focused && focused->visible) {
+                int cols = (focused->w - 4) / 8;
+                int rows = (focused->h - WIN_TITLE_H - 2) / 16;
+                if (cols > 128) cols = 128;
+                if (rows > 64) rows = 64;
+
+                if (c == '\n' || c == '\r') {
+                    focused->cur_col = 0;
+                    focused->cur_row++;
+                    if (focused->cur_row >= rows) {
+                        /* Scroll up */
+                        for (int r = 0; r < rows - 1; r++)
+                            for (int col = 0; col < cols; col++)
+                                focused->text[r * 128 + col] = focused->text[(r+1) * 128 + col];
+                        for (int col = 0; col < cols; col++)
+                            focused->text[(rows-1) * 128 + col] = ' ';
+                        focused->cur_row = rows - 1;
+                    }
+                    redraw = 1;
+                } else if (c == '\b' || c == 127) {
+                    if (focused->cur_col > 0) {
+                        focused->cur_col--;
+                        focused->text[focused->cur_row * 128 + focused->cur_col] = ' ';
+                        redraw = 1;
+                    }
+                } else if (c >= 32 && c < 127) {
+                    if (focused->cur_col >= cols) {
+                        focused->cur_col = 0;
+                        focused->cur_row++;
+                        if (focused->cur_row >= rows) {
+                            for (int r = 0; r < rows - 1; r++)
+                                for (int col = 0; col < cols; col++)
+                                    focused->text[r * 128 + col] = focused->text[(r+1) * 128 + col];
+                            for (int col = 0; col < cols; col++)
+                                focused->text[(rows-1) * 128 + col] = ' ';
+                            focused->cur_row = rows - 1;
+                        }
+                    }
+                    focused->text[focused->cur_row * 128 + focused->cur_col] = c;
+                    focused->cur_col++;
+                    redraw = 1;
+                }
+            }
         }
-        wm_draw_all();
+
+        /* Handle mouse */
+        if (mx != last_mx || my != last_my || mb) {
+            wm_handle_mouse(mx, my, mb);
+            if (mx != last_mx || my != last_my) redraw = 1;
+            last_mx = mx; last_my = my;
+        }
+
+        if (redraw) {
+            wm_draw_all();
+            wm_draw_mouse(mx, my);
+        } else {
+            wm_draw_mouse(mx, my);
+        }
     }
 }
