@@ -1,0 +1,275 @@
+/* SlopOS Window Manager Implementation
+ * SPDX-License-Identifier: 0BSD
+ */
+#include "wm.h"
+#include "../limine.h"
+#include <stddef.h>
+#include "serial.h"
+
+static struct window windows[MAX_WINDOWS];
+static int window_count = 0;
+static int next_id = 1;
+static int screen_w = 800, screen_h = 600;
+static uint32_t *framebuffer = NULL;
+static uint64_t fb_pitch = 0;
+
+extern struct limine_framebuffer *fb;
+
+static uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) {
+    return ((uint32_t)r << fb->red_mask_shift)
+         | ((uint32_t)g << fb->green_mask_shift)
+         | ((uint32_t)b << fb->blue_mask_shift);
+}
+
+uint32_t *get_fb(void) { return framebuffer; }
+int get_screen_w(void) { return screen_w; }
+int get_screen_h(void) { return screen_h; }
+
+static void put_pixel_fb(int x, int y, uint32_t color) {
+    if (x < 0 || x >= screen_w || y < 0 || y >= screen_h) return;
+    framebuffer[y * (fb_pitch / 4) + x] = color;
+}
+
+static void fill_rect_fb(int x, int y, int w, int h, uint32_t color) {
+    for (int row = y; row < y + h && row < screen_h; row++) {
+        if (row < 0) continue;
+        for (int col = x; col < x + w && col < screen_w; col++) {
+            if (col < 0) continue;
+            framebuffer[row * (fb_pitch / 4) + col] = color;
+        }
+    }
+}
+
+/* 8x8 font for window titles */
+static const uint8_t font8x8[128][8] = {
+    [32]={0,0,0,0,0,0,0,0}, [33]={0x18,0x3C,0x3C,0x18,0x18,0,0x18,0},
+    [34]={0x66,0x66,0x24,0,0,0,0,0}, [35]={0x6C,0x6C,0xFE,0x6C,0xFE,0x6C,0x6C,0},
+    [36]={0x18,0x3E,0x60,0x3C,0x6,0x7C,0x18,0}, [37]={0,0xC6,0xCC,0x18,0x30,0x66,0xC6,0},
+    [38]={0x38,0x6C,0x38,0x76,0xDC,0xCC,0x76,0}, [39]={0x18,0x18,0x30,0,0,0,0,0},
+    [40]={0xC,0x18,0x30,0x30,0x30,0x18,0xC,0}, [41]={0x30,0x18,0xC,0xC,0xC,0x18,0x30,0},
+    [42]={0,0x66,0x3C,0xFF,0x3C,0x66,0,0}, [43]={0,0x18,0x18,0x7E,0x18,0x18,0,0},
+    [44]={0,0,0,0,0,0x18,0x18,0x30}, [45]={0,0,0,0x7E,0,0,0,0},
+    [46]={0,0,0,0,0,0x18,0x18,0}, [47]={0x6,0xC,0x18,0x30,0x60,0xC0,0x80,0},
+    [48]={0x7C,0xC6,0xCE,0xD6,0xE6,0xC6,0x7C,0}, [49]={0x18,0x38,0x78,0x18,0x18,0x18,0x7E,0},
+    [50]={0x7C,0xC6,0x6,0xC,0x30,0x60,0xFE,0}, [51]={0x7C,0xC6,0x6,0x3C,0x6,0xC6,0x7C,0},
+    [52]={0xC,0x1C,0x3C,0x6C,0xFE,0xC,0x1E,0}, [53]={0xFE,0xC0,0xFC,0x6,0x6,0xC6,0x7C,0},
+    [54]={0x3C,0x60,0xC0,0xFC,0xC6,0xC6,0x7C,0}, [55]={0xFE,0xC6,0xC,0x18,0x30,0x30,0x30,0},
+    [56]={0x7C,0xC6,0xC6,0x7C,0xC6,0xC6,0x7C,0}, [57]={0x7C,0xC6,0xC6,0x7E,0x6,0xC,0x78,0},
+    [58]={0,0x18,0x18,0,0,0x18,0x18,0}, [59]={0,0x18,0x18,0,0,0x18,0x18,0x30},
+    [60]={0x6,0xC,0x18,0x30,0x18,0xC,0x6,0}, [61]={0,0,0x7E,0,0x7E,0,0,0},
+    [62]={0x60,0x30,0x18,0xC,0x18,0x30,0x60,0}, [63]={0x7C,0xC6,0xC,0x18,0x18,0,0x18,0},
+    [64]={0x7C,0xC6,0xDE,0xDE,0xDE,0xC0,0x7C,0}, [65]={0x38,0x6C,0xC6,0xFE,0xC6,0xC6,0xC6,0},
+    [66]={0xFC,0x66,0x66,0x7C,0x66,0x66,0xFC,0}, [67]={0x3C,0x66,0xC0,0xC0,0xC0,0x66,0x3C,0},
+    [68]={0xF8,0x6C,0x66,0x66,0x66,0x6C,0xF8,0}, [69]={0xFE,0x62,0x68,0x78,0x68,0x62,0xFE,0},
+    [70]={0xFE,0x62,0x68,0x78,0x68,0x60,0xF0,0}, [71]={0x3C,0x66,0xC0,0xDE,0xC6,0x66,0x3A,0},
+    [72]={0xC6,0xC6,0xC6,0xFE,0xC6,0xC6,0xC6,0}, [73]={0x3C,0x18,0x18,0x18,0x18,0x18,0x3C,0},
+    [74]={0x1E,0xC,0xC,0xC,0xCC,0xCC,0x78,0}, [75]={0xE6,0x66,0x6C,0x78,0x6C,0x66,0xE6,0},
+    [76]={0xF0,0x60,0x60,0x60,0x62,0x66,0xFE,0}, [77]={0xC6,0xEE,0xFE,0xD6,0xC6,0xC6,0xC6,0},
+    [78]={0xC6,0xE6,0xF6,0xDE,0xCE,0xC6,0xC6,0}, [79]={0x7C,0xC6,0xC6,0xC6,0xC6,0xC6,0x7C,0},
+    [80]={0xFC,0x66,0x66,0x7C,0x60,0x60,0xF0,0}, [81]={0x7C,0xC6,0xC6,0xC6,0xD6,0xDE,0x7C,0xC},
+    [82]={0xFC,0x66,0x66,0x7C,0x6C,0x66,0xE6,0}, [83]={0x7C,0xC6,0x60,0x38,0xC,0xC6,0x7C,0},
+    [84]={0x7E,0x5A,0x18,0x18,0x18,0x18,0x3C,0}, [85]={0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0x7C,0},
+    [86]={0xC6,0xC6,0xC6,0xC6,0x6C,0x38,0x10,0}, [87]={0xC6,0xC6,0xC6,0xD6,0xFE,0xEE,0xC6,0},
+    [88]={0xC6,0xC6,0x6C,0x38,0x6C,0xC6,0xC6,0}, [89]={0x66,0x66,0x66,0x3C,0x18,0x18,0x3C,0},
+    [90]={0xFE,0xC6,0x8C,0x18,0x32,0x66,0xFE,0}, [91]={0x3C,0x30,0x30,0x30,0x30,0x30,0x3C,0},
+    [92]={0xC0,0x60,0x30,0x18,0xC,0x6,0x2,0}, [93]={0x3C,0xC,0xC,0xC,0xC,0xC,0x3C,0},
+    [94]={0x10,0x38,0x6C,0xC6,0,0,0,0}, [95]={0,0,0,0,0,0,0,0xFF},
+    [96]={0x30,0x18,0xC,0,0,0,0,0}, [97]={0,0,0x78,0xC,0x7C,0xCC,0x76,0},
+    [98]={0xE0,0x60,0x7C,0x66,0x66,0x66,0xDC,0}, [99]={0,0,0x7C,0xC6,0xC0,0xC6,0x7C,0},
+    [100]={0x1C,0xC,0x7C,0xCC,0xCC,0xCC,0x76,0}, [101]={0,0,0x7C,0xC6,0xFE,0xC0,0x7C,0},
+    [102]={0x38,0x6C,0x60,0xF0,0x60,0x60,0xF0,0}, [103]={0,0,0x76,0xCC,0x7C,0xC,0xCC,0x78},
+    [104]={0xE0,0x60,0x6C,0x76,0x66,0x66,0xE6,0}, [105]={0x18,0,0x38,0x18,0x18,0x18,0x3C,0},
+    [106]={0xC,0,0x1C,0xC,0xC,0xCC,0xCC,0x78}, [107]={0xE0,0x60,0x66,0x6C,0x78,0x6C,0xE6,0},
+    [108]={0x38,0x18,0x18,0x18,0x18,0x18,0x3C,0}, [109]={0,0,0xEC,0xFE,0xD6,0xD6,0xD6,0},
+    [110]={0,0,0xDC,0x66,0x66,0x66,0x66,0}, [111]={0,0,0x7C,0xC6,0xC6,0xC6,0x7C,0},
+    [112]={0,0,0xDC,0x66,0x66,0x7C,0x60,0xF0}, [113]={0,0,0x76,0xCC,0xCC,0x7C,0xC,0x1E},
+    [114]={0,0,0xDC,0x76,0x66,0x60,0xF0,0}, [115]={0,0,0x7C,0xC0,0x7C,0x6,0xFC,0},
+    [116]={0x30,0x30,0xFC,0x30,0x30,0x36,0x1C,0}, [117]={0,0,0xCC,0xCC,0xCC,0xCC,0x76,0},
+    [118]={0,0,0xC6,0xC6,0xC6,0x6C,0x38,0}, [119]={0,0,0xC6,0xD6,0xD6,0xFE,0x6C,0},
+    [120]={0,0,0xC6,0x6C,0x38,0x6C,0xC6,0}, [121]={0,0,0xC6,0xC6,0x7E,0x6,0xC,0xF8},
+    [122]={0,0,0xFE,0x8C,0x18,0x32,0xFE,0},
+};
+
+static void draw_char_fb(int x, int y, char c, uint32_t fg) {
+    if ((unsigned char)c >= 128) return;
+    const uint8_t *g = font8x8[(unsigned char)c];
+    for (int row = 0; row < 8; row++) {
+        for (int col = 0; col < 8; col++) {
+            if (g[row] & (1 << (7 - col))) put_pixel_fb(x+col, y+row, fg);
+        }
+    }
+}
+
+static void draw_string_fb(int x, int y, const char *s, uint32_t fg) {
+    while (*s) { draw_char_fb(x, y, *s++, fg); x += 8; }
+}
+
+void wm_init(int sw, int sh) {
+    serial_write_str("[WM] init start\n");
+    screen_w = sw;
+    screen_h = sh;
+    framebuffer = (uint32_t *)fb->address;
+    fb_pitch = fb->pitch;
+    window_count = 0;
+    serial_write_str("[WM] init done\n");
+}
+
+struct window *wm_create_window(int x, int y, int w, int h, const char *title) {
+    serial_write_str("[WM] create_window\n");
+    if (window_count >= MAX_WINDOWS) return NULL;
+    struct window *win = &windows[window_count++];
+    win->id = next_id++;
+    win->x = x; win->y = y; win->w = w; win->h = h;
+    win->visible = 1; win->focused = 0; win->dragging = 0;
+    int i;
+    for (i = 0; i < 63 && title[i]; i++) win->title[i] = title[i];
+    win->title[i] = 0;
+    win->buffer = NULL;
+    serial_write_str("[WM] create_window done\n");
+    return win;
+}
+
+void wm_destroy_window(struct window *win) {
+    if (!win) return;
+    win->visible = 0;
+}
+
+static void draw_window_decoration(struct window *win) {
+    uint32_t title_bg = win->focused ? rgb(0x30, 0x50, 0x80) : rgb(0x30, 0x40, 0x60);
+    uint32_t border = rgb(0x40, 0x50, 0x70);
+    uint32_t text_color = rgb(0xFF, 0xFF, 0xFF);
+
+    /* Title bar */
+    fill_rect_fb(win->x, win->y, win->w, WIN_TITLE_H, title_bg);
+    draw_string_fb(win->x + 4, win->y + 4, win->title, text_color);
+
+    /* Close button */
+    uint32_t close_col = rgb(0xCC, 0x44, 0x44);
+    fill_rect_fb(win->x + win->w - 20, win->y + 2, 16, 16, close_col);
+    draw_string_fb(win->x + win->w - 17, win->y + 3, "X", rgb(0xFF, 0xFF, 0xFF));
+
+    /* Left border */
+    fill_rect_fb(win->x, win->y + WIN_TITLE_H, 2, win->h - WIN_TITLE_H, border);
+    /* Right border */
+    fill_rect_fb(win->x + win->w - 2, win->y + WIN_TITLE_H, 2, win->h - WIN_TITLE_H, border);
+    /* Bottom border */
+    fill_rect_fb(win->x, win->y + win->h - 2, win->w, 2, border);
+
+    /* Client area background */
+    fill_rect_fb(win->x + 2, win->y + WIN_TITLE_H, win->w - 4, win->h - WIN_TITLE_H - 2, rgb(0x20, 0x20, 0x30));
+}
+
+static void draw_window_client(struct window *win) {
+    fill_rect_fb(win->x + 2, win->y + WIN_TITLE_H, win->w - 4, win->h - WIN_TITLE_H - 2, rgb(0x20, 0x20, 0x30));
+}
+
+void wm_draw_all(void) {
+    serial_write_str("[WM] draw_all start\n");
+    /* Draw windows back to front */
+    for (int i = 0; i < window_count; i++) {
+        if (windows[i].visible) {
+            draw_window_decoration(&windows[i]);
+            draw_window_client(&windows[i]);
+        }
+    }
+    /* Redraw focused window on top for z-order */
+    for (int i = window_count - 1; i >= 0; i--) {
+        if (windows[i].visible && windows[i].focused) {
+            draw_window_decoration(&windows[i]);
+            draw_window_client(&windows[i]);
+            break;
+        }
+    }
+    serial_write_str("[WM] draw_all done\n");
+}
+
+void wm_handle_mouse(int mx, int my, int buttons) {
+    static int last_buttons = 0;
+    int pressed = buttons & ~last_buttons;
+    int released = last_buttons & ~buttons;
+    last_buttons = buttons;
+
+    /* Check close buttons first */
+    for (int i = window_count - 1; i >= 0; i--) {
+        struct window *win = &windows[i];
+        if (!win->visible) continue;
+        int close_x = win->x + win->w - 20;
+        int close_y = win->y + 2;
+        if (mx >= close_x && mx < close_x + 16 && my >= close_y && my < close_y + 16) {
+            if (pressed & 1) {
+                wm_destroy_window(win);
+                return;
+            }
+        }
+    }
+
+    /* Check title bar for dragging */
+    for (int i = window_count - 1; i >= 0; i--) {
+        struct window *win = &windows[i];
+        if (!win->visible) continue;
+        if (mx >= win->x && mx < win->x + win->w &&
+            my >= win->y && my < win->y + WIN_TITLE_H) {
+            if (pressed & 1) {
+                wm_focus_window(win);
+                win->dragging = 1;
+                win->drag_off_x = mx - win->x;
+                win->drag_off_y = my - win->y;
+            }
+        }
+    }
+
+    /* Handle dragging */
+    for (int i = window_count - 1; i >= 0; i--) {
+        struct window *win = &windows[i];
+        if (win->dragging) {
+            if (buttons & 1) {
+                win->x = mx - win->drag_off_x;
+                win->y = my - win->drag_off_y;
+                if (win->x < 0) win->x = 0;
+                if (win->y < 0) win->y = 0;
+                if (win->x + win->w > screen_w) win->x = screen_w - win->w;
+                if (win->y + win->h > screen_h) win->y = screen_h - win->h;
+            } else {
+                win->dragging = 0;
+            }
+            return;
+        }
+    }
+
+    /* Click on client area focuses */
+    if (pressed & 1) {
+        for (int i = window_count - 1; i >= 0; i--) {
+            struct window *win = &windows[i];
+            if (!win->visible) continue;
+            if (mx >= win->x && mx < win->x + win->w &&
+                my >= win->y && my < win->y + win->h) {
+                wm_focus_window(win);
+                return;
+            }
+        }
+    }
+}
+
+struct window *wm_window_at(int mx, int my) {
+    for (int i = window_count - 1; i >= 0; i--) {
+        struct window *win = &windows[i];
+        if (!win->visible) continue;
+        if (mx >= win->x && mx < win->x + win->w &&
+            my >= win->y && my < win->y + win->h) {
+            return win;
+        }
+    }
+    return NULL;
+}
+
+void wm_focus_window(struct window *win) {
+    if (!win) return;
+    for (int i = 0; i < window_count; i++) windows[i].focused = 0;
+    win->focused = 1;
+}
+
+void wm_redraw_window(struct window *win) {
+    if (!win || !win->visible) return;
+    draw_window_decoration(win);
+    draw_window_client(win);
+}

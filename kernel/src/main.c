@@ -9,6 +9,8 @@
 #include "gdt.h"
 #include "idt.h"
 #include "pmm.h"
+#include "mouse.h"
+#include "wm.h"
 
 #define LIMINE_REQUESTS_START_MARKER \
     __attribute__((section(".requests_start_marker"), used)) \
@@ -407,71 +409,23 @@ void _start(void) {
     serial_write_str("[SlopOS] Initializing IDT...\n");
     idt_init();
 
-    /* Draw a simple desktop-like area */
-    draw_rect(0, fb->height - 40, fb->width, 40, rgb(0x10, 0x20, 0x38));
-    cursor_x = 10;
-    cursor_y = fb->height - 32;
-    draw_string("[SlopOS Desktop] - System Ready", rgb(0x88, 0xCC, 0x88));
+    serial_write_str("[SlopOS] Initializing mouse...\n");
+    mouse_init();
+    serial_write_str("[SlopOS] Initializing window manager...\n");
+    wm_init(fb->width, fb->height);
 
-    /* Keyboard input loop with display */
-    uint64_t input_x = 10;
-    uint64_t input_y = fb->height - 80;
-    char input_buffer[256];
-    int input_pos = 0;
-    draw_rect(0, input_y - 5, fb->width, 22, rgb(0x18, 0x30, 0x50));
-    cursor_x = input_x;
-    cursor_y = input_y;
-    draw_string("> ", rgb(0xFF, 0xFF, 0xFF));
+    /* Create a terminal window */
+    struct window *term = wm_create_window(50, 50, 500, 300, "Terminal");
+    if (term) wm_focus_window(term);
+
+    wm_draw_all();
 
     for (;;) {
         __asm__("hlt");
         int c = keyboard_getchar();
         if (c > 0) {
-            if (c == '\n') {
-                if (input_pos > 0) {
-                    input_buffer[input_pos] = 0;
-                    cursor_x = input_x + 16;
-                    cursor_y = input_y;
-                    draw_string(input_buffer, rgb(0x88, 0xFF, 0x88));
-                    input_pos = 0;
-                    cursor_y += 16;
-                    if (cursor_y + 16 > fb->height - 46) {
-                        /* Scroll the input area */
-                        input_y -= 16;
-                    }
-                    cursor_x = input_x;
-                    cursor_y = input_y;
-                    draw_rect(0, input_y - 5, fb->width, 22, rgb(0x18, 0x30, 0x50));
-                    draw_string("> ", rgb(0xFF, 0xFF, 0xFF));
-                }
-            } else if (c == '\b' || c == 127) {
-                if (input_pos > 0) {
-                    input_pos--;
-                    uint64_t bx = input_x + 16 + input_pos * 8;
-                    put_pixel(bx, input_y + 8, rgb(0x18, 0x30, 0x50));
-                    draw_rect(bx, input_y, 8, 16, rgb(0x18, 0x30, 0x50));
-                }
-            } else if (input_pos < 250) {
-                input_buffer[input_pos++] = c;
-                uint64_t cx = input_x + 16 + (input_pos - 1) * 8;
-                uint64_t cy = input_y;
-                /* Redraw the character area */
-                draw_rect(cx, cy, 8, 16, rgb(0x18, 0x30, 0x50));
-                /* Draw the character */
-                if (c >= 32 && c <= 126) {
-                    const uint8_t *glyph = font[c - 32];
-                    for (int row = 0; row < 16; row++) {
-                        for (int col = 0; col < 8; col++) {
-                            if (glyph[row] & (1 << (7 - col))) {
-                                put_pixel(cx + col, cy + row, rgb(0xFF, 0xFF, 0xFF));
-                            }
-                        }
-                    }
-                }
-            }
-            serial_write_str("[SlopOS] Key: '");
-            serial_write(c);
-            serial_write_str("'\n");
+            serial_write_str("[SlopOS] Key\n");
         }
+        wm_draw_all();
     }
 }

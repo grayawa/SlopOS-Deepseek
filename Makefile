@@ -37,7 +37,7 @@ LDFLAGS := -nostdlib \
 	-z max-page-size=0x1000 \
 	-T kernel/linker.ld
 
-KERNEL_OBJS := $(BUILD_DIR)/main.o $(BUILD_DIR)/gdt.o $(BUILD_DIR)/idt.o $(BUILD_DIR)/isr.o $(BUILD_DIR)/pmm.o
+KERNEL_OBJS := $(BUILD_DIR)/main.o $(BUILD_DIR)/gdt.o $(BUILD_DIR)/idt.o $(BUILD_DIR)/isr.o $(BUILD_DIR)/pmm.o $(BUILD_DIR)/mouse.o $(BUILD_DIR)/wm.o
 KERNEL_ELF := $(BUILD_DIR)/slopos.elf
 
 LIMINE_DIR := limine-binary

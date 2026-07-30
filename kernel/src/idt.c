@@ -4,6 +4,7 @@
 #include "idt.h"
 #include "io.h"
 #include "serial.h"
+#include "mouse.h"
 
 #define PIC1        0x20
 #define PIC2        0xA0
@@ -180,9 +181,14 @@ static void keyboard_handle(uint8_t scancode) {
 }
 
 void irq_handler(uint64_t irq, uint64_t rip) {
+    (void)rip;
     if (irq == 1) {
         uint8_t scancode = inb(0x60);
         keyboard_handle(scancode);
+    }
+    if (irq == 12) {
+        uint8_t data = inb(0x60);
+        mouse_handle(data);
     }
     if (irq >= 8) {
         outb(PIC2_CMD, PIC_EOI);
@@ -207,8 +213,9 @@ void idt_init(void) {
 
     pic_remap();
 
-    /* Enable keyboard IRQ (IRQ1) */
+    /* Enable keyboard IRQ (IRQ1) and mouse IRQ (IRQ12) */
     outb(PIC1_DATA, inb(PIC1_DATA) & ~0x02);
+    outb(PIC2_DATA, inb(PIC2_DATA) & ~0x10);
 
     serial_write_str("[SlopOS] IDT initialized, PIC remapped, interrupts enabled\n");
     interrupts_enable();
