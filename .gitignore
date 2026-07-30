@@ -13,3 +13,4 @@ limine-binary/limine
 # Downloaded archives
 *.tar.xz
 *.tar.gz
+serial.log
