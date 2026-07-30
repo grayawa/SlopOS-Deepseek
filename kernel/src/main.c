@@ -1,0 +1,477 @@
+/* SlopOS Kernel Entry
+ * SPDX-License-Identifier: 0BSD
+ */
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+#include "../limine.h"
+#include "serial.h"
+#include "gdt.h"
+#include "idt.h"
+#include "pmm.h"
+
+#define LIMINE_REQUESTS_START_MARKER \
+    __attribute__((section(".requests_start_marker"), used)) \
+    static volatile uint64_t limine_requests_start_marker[4] = { \
+        0xf6b8f4b39de6d1ae, 0xfab91a6940fcb9cf, \
+        0x785c6ed015d3e316, 0x181e920a7852b9d9 \
+    }
+
+#define LIMINE_REQUESTS_END_MARKER \
+    __attribute__((section(".requests_end_marker"), used)) \
+    static volatile uint64_t limine_requests_end_marker[4] = { \
+        0xadc0e0531bb10d03, 0x9572709f31764c62, \
+        0xa7948033f843fc1b, 0xb024f26e30df22b4 \
+    }
+
+LIMINE_REQUESTS_START_MARKER;
+
+__attribute__((section(".requests"), used))
+static volatile struct limine_framebuffer_request framebuffer_request = {
+    .id = LIMINE_FRAMEBUFFER_REQUEST,
+    .revision = 0,
+    .response = NULL
+};
+
+__attribute__((section(".requests"), used))
+static volatile struct limine_memmap_request memmap_request = {
+    .id = LIMINE_MEMORY_MAP_REQUEST,
+    .revision = 0,
+    .response = NULL
+};
+
+__attribute__((section(".requests"), used))
+static volatile struct limine_hhdm_request hhdm_request = {
+    .id = LIMINE_HHDM_REQUEST,
+    .revision = 0,
+    .response = NULL
+};
+
+__attribute__((section(".requests"), used))
+static volatile struct limine_kernel_address_request kernel_address_request = {
+    .id = LIMINE_KERNEL_ADDRESS_REQUEST,
+    .revision = 0,
+    .response = NULL
+};
+
+__attribute__((section(".requests"), used))
+static volatile struct limine_bootloader_info_request bootloader_info_request = {
+    .id = LIMINE_BOOTLOADER_INFO_REQUEST,
+    .revision = 0,
+    .response = NULL
+};
+
+__attribute__((section(".requests"), used))
+static volatile struct limine_terminal_request terminal_request = {
+    .id = LIMINE_TERMINAL_REQUEST,
+    .revision = 0,
+    .response = NULL,
+    .callback = NULL
+};
+
+LIMINE_REQUESTS_END_MARKER;
+
+uint64_t hhdm_offset;
+struct limine_framebuffer *fb;
+
+static void put_pixel(uint64_t x, uint64_t y, uint32_t color) {
+    if (!fb || x >= fb->width || y >= fb->height) return;
+    uint32_t *fb_addr = (uint32_t *)fb->address;
+    fb_addr[y * (fb->pitch / 4) + x] = color;
+}
+
+static uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) {
+    return ((uint32_t)r << fb->red_mask_shift)
+         | ((uint32_t)g << fb->green_mask_shift)
+         | ((uint32_t)b << fb->blue_mask_shift);
+}
+
+/* 8x16 font - basic ASCII 32-126 */
+static const uint8_t font[95][16] = {
+    /* space */ {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    /* ! */ {0,0,0x18,0x3C,0x3C,0x3C,0x18,0x18,0x18,0,0x18,0x18,0,0,0,0},
+    /* " */ {0,0x66,0x66,0x66,0x24,0,0,0,0,0,0,0,0,0,0,0},
+    /* # */ {0,0,0,0x6C,0x6C,0xFE,0x6C,0x6C,0x6C,0xFE,0x6C,0x6C,0,0,0,0},
+    /* $ */ {0x18,0x18,0x7C,0xC6,0xC2,0xC0,0x7C,0x6,0x6,0x86,0xC6,0x7C,0x18,0x18,0,0},
+    /* % */ {0,0,0,0,0xC2,0xC6,0xC,0x18,0x30,0x60,0xC6,0x86,0,0,0,0},
+    /* & */ {0,0,0x38,0x6C,0x6C,0x38,0x76,0xDC,0xCC,0xCC,0xCC,0x76,0,0,0,0},
+    /* ' */ {0,0x30,0x30,0x30,0x60,0,0,0,0,0,0,0,0,0,0,0},
+    /* ( */ {0,0,0xC,0x18,0x30,0x30,0x30,0x30,0x30,0x30,0x18,0xC,0,0,0,0},
+    /* ) */ {0,0,0x30,0x18,0xC,0xC,0xC,0xC,0xC,0xC,0x18,0x30,0,0,0,0},
+    /* * */ {0,0,0,0,0,0x66,0x3C,0xFF,0x3C,0x66,0,0,0,0,0,0},
+    /* + */ {0,0,0,0,0,0x18,0x18,0x7E,0x18,0x18,0,0,0,0,0,0},
+    /* , */ {0,0,0,0,0,0,0,0,0,0x18,0x18,0x18,0x30,0,0,0},
+    /* - */ {0,0,0,0,0,0,0,0x7E,0,0,0,0,0,0,0,0},
+    /* . */ {0,0,0,0,0,0,0,0,0,0,0x18,0x18,0,0,0,0},
+    /* / */ {0,0,0,0,0x2,0x6,0xC,0x18,0x30,0x60,0xC0,0x80,0,0,0,0},
+    /* 0 */ {0,0,0x3C,0x66,0xC3,0xC3,0xDB,0xDB,0xC3,0xC3,0x66,0x3C,0,0,0,0},
+    /* 1 */ {0,0,0x18,0x38,0x78,0x18,0x18,0x18,0x18,0x18,0x18,0x7E,0,0,0,0},
+    /* 2 */ {0,0,0x7C,0xC6,0x6,0xC,0x18,0x30,0x60,0xC0,0xC6,0xFE,0,0,0,0},
+    /* 3 */ {0,0,0x7C,0xC6,0x6,0x6,0x3C,0x6,0x6,0x6,0xC6,0x7C,0,0,0,0},
+    /* 4 */ {0,0,0xC,0x1C,0x3C,0x6C,0xCC,0xFE,0xC,0xC,0xC,0x1E,0,0,0,0},
+    /* 5 */ {0,0,0xFE,0xC0,0xC0,0xC0,0xFC,0x6,0x6,0x6,0xC6,0x7C,0,0,0,0},
+    /* 6 */ {0,0,0x38,0x60,0xC0,0xC0,0xFC,0xC6,0xC6,0xC6,0xC6,0x7C,0,0,0,0},
+    /* 7 */ {0,0,0xFE,0xC6,0x6,0x6,0xC,0x18,0x30,0x30,0x30,0x30,0,0,0,0},
+    /* 8 */ {0,0,0x7C,0xC6,0xC6,0xC6,0x7C,0xC6,0xC6,0xC6,0xC6,0x7C,0,0,0,0},
+    /* 9 */ {0,0,0x7C,0xC6,0xC6,0xC6,0x7E,0x6,0x6,0x6,0xC,0x78,0,0,0,0},
+    /* : */ {0,0,0,0,0,0x18,0x18,0,0,0,0x18,0x18,0,0,0,0},
+    /* ; */ {0,0,0,0,0,0x18,0x18,0,0,0,0x18,0x18,0x30,0,0,0},
+    /* < */ {0,0,0,0x6,0xC,0x18,0x30,0x60,0x30,0x18,0xC,0x6,0,0,0,0},
+    /* = */ {0,0,0,0,0,0,0x7E,0,0,0x7E,0,0,0,0,0,0},
+    /* > */ {0,0,0,0x60,0x30,0x18,0xC,0x6,0xC,0x18,0x30,0x60,0,0,0,0},
+    /* ? */ {0,0,0x7C,0xC6,0xC6,0xC,0x18,0x18,0x18,0,0x18,0x18,0,0,0,0},
+    /* @ */ {0,0,0,0x7C,0xC6,0xC6,0xDE,0xDE,0xDE,0xDC,0xC0,0x7C,0,0,0,0},
+    /* A */ {0,0,0x10,0x38,0x6C,0xC6,0xC6,0xFE,0xC6,0xC6,0xC6,0xC6,0,0,0,0},
+    /* B */ {0,0,0xFC,0x66,0x66,0x66,0x7C,0x66,0x66,0x66,0x66,0xFC,0,0,0,0},
+    /* C */ {0,0,0x3C,0x66,0xC2,0xC0,0xC0,0xC0,0xC0,0xC2,0x66,0x3C,0,0,0,0},
+    /* D */ {0,0,0xF8,0x6C,0x66,0x66,0x66,0x66,0x66,0x66,0x6C,0xF8,0,0,0,0},
+    /* E */ {0,0,0xFE,0x66,0x62,0x68,0x78,0x68,0x60,0x62,0x66,0xFE,0,0,0,0},
+    /* F */ {0,0,0xFE,0x66,0x62,0x68,0x78,0x68,0x60,0x60,0x60,0xF0,0,0,0,0},
+    /* G */ {0,0,0x3C,0x66,0xC2,0xC0,0xC0,0xDE,0xC6,0xC6,0x66,0x3A,0,0,0,0},
+    /* H */ {0,0,0xC6,0xC6,0xC6,0xC6,0xFE,0xC6,0xC6,0xC6,0xC6,0xC6,0,0,0,0},
+    /* I */ {0,0,0x3C,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x3C,0,0,0,0},
+    /* J */ {0,0,0x1E,0xC,0xC,0xC,0xC,0xC,0xCC,0xCC,0xCC,0x78,0,0,0,0},
+    /* K */ {0,0,0xE6,0x66,0x66,0x6C,0x78,0x78,0x6C,0x66,0x66,0xE6,0,0,0,0},
+    /* L */ {0,0,0xF0,0x60,0x60,0x60,0x60,0x60,0x60,0x62,0x66,0xFE,0,0,0,0},
+    /* M */ {0,0,0xC3,0xE7,0xFF,0xFF,0xDB,0xC3,0xC3,0xC3,0xC3,0xC3,0,0,0,0},
+    /* N */ {0,0,0xC6,0xE6,0xF6,0xFE,0xDE,0xCE,0xC6,0xC6,0xC6,0xC6,0,0,0,0},
+    /* O */ {0,0,0x7C,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0x7C,0,0,0,0},
+    /* P */ {0,0,0xFC,0x66,0x66,0x66,0x7C,0x60,0x60,0x60,0x60,0xF0,0,0,0,0},
+    /* Q */ {0,0,0x7C,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0xD6,0xDE,0x7C,0xC,0xE,0,0},
+    /* R */ {0,0,0xFC,0x66,0x66,0x66,0x7C,0x6C,0x66,0x66,0x66,0xE6,0,0,0,0},
+    /* S */ {0,0,0x7C,0xC6,0xC6,0x60,0x38,0xC,0x6,0xC6,0xC6,0x7C,0,0,0,0},
+    /* T */ {0,0,0xFF,0xDB,0x99,0x18,0x18,0x18,0x18,0x18,0x18,0x3C,0,0,0,0},
+    /* U */ {0,0,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0x7C,0,0,0,0},
+    /* V */ {0,0,0xC3,0xC3,0xC3,0xC3,0xC3,0xC3,0xC3,0x66,0x3C,0x18,0,0,0,0},
+    /* W */ {0,0,0xC3,0xC3,0xC3,0xC3,0xC3,0xDB,0xDB,0xFF,0x66,0x66,0,0,0,0},
+    /* X */ {0,0,0xC3,0xC3,0x66,0x3C,0x18,0x18,0x3C,0x66,0xC3,0xC3,0,0,0,0},
+    /* Y */ {0,0,0xC3,0xC3,0xC3,0x66,0x3C,0x18,0x18,0x18,0x18,0x3C,0,0,0,0},
+    /* Z */ {0,0,0xFF,0xC3,0x86,0xC,0x18,0x30,0x60,0xC1,0xC3,0xFF,0,0,0,0},
+    /* [ */ {0,0,0x3C,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x3C,0,0,0,0},
+    /* \ */ {0,0,0,0x80,0xC0,0xE0,0x70,0x38,0x1C,0xE,0x6,0x2,0,0,0,0},
+    /* ] */ {0,0,0x3C,0xC,0xC,0xC,0xC,0xC,0xC,0xC,0xC,0x3C,0,0,0,0},
+    /* ^ */ {0x10,0x38,0x6C,0xC6,0,0,0,0,0,0,0,0,0,0,0,0},
+    /* _ */ {0,0,0,0,0,0,0,0,0,0,0,0,0,0xFF,0,0},
+    /* ` */ {0x30,0x30,0x18,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    /* a */ {0,0,0,0,0,0x78,0xC,0x7C,0xCC,0xCC,0xCC,0x76,0,0,0,0},
+    /* b */ {0,0,0xE0,0x60,0x60,0x78,0x6C,0x66,0x66,0x66,0x66,0x7C,0,0,0,0},
+    /* c */ {0,0,0,0,0,0x7C,0xC6,0xC0,0xC0,0xC0,0xC6,0x7C,0,0,0,0},
+    /* d */ {0,0,0x1C,0xC,0xC,0x3C,0x6C,0xCC,0xCC,0xCC,0xCC,0x76,0,0,0,0},
+    /* e */ {0,0,0,0,0,0x7C,0xC6,0xFE,0xC0,0xC0,0xC6,0x7C,0,0,0,0},
+    /* f */ {0,0,0x38,0x6C,0x64,0x60,0xF0,0x60,0x60,0x60,0x60,0xF0,0,0,0,0},
+    /* g */ {0,0,0,0,0,0x76,0xCC,0xCC,0xCC,0xCC,0xCC,0x7C,0xC,0xCC,0x78,0},
+    /* h */ {0,0,0xE0,0x60,0x60,0x6C,0x76,0x66,0x66,0x66,0x66,0xE6,0,0,0,0},
+    /* i */ {0,0,0x18,0x18,0,0,0x38,0x18,0x18,0x18,0x18,0x3C,0,0,0,0},
+    /* j */ {0,0,0x6,0x6,0,0,0xE,0x6,0x6,0x6,0x6,0x6,0x66,0x66,0x3C,0},
+    /* k */ {0,0,0xE0,0x60,0x60,0x66,0x6C,0x78,0x78,0x6C,0x66,0xE6,0,0,0,0},
+    /* l */ {0,0,0x38,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x3C,0,0,0,0},
+    /* m */ {0,0,0,0,0,0xE6,0xFF,0xDB,0xDB,0xDB,0xDB,0xDB,0,0,0,0},
+    /* n */ {0,0,0,0,0,0xDC,0x66,0x66,0x66,0x66,0x66,0x66,0,0,0,0},
+    /* o */ {0,0,0,0,0,0x7C,0xC6,0xC6,0xC6,0xC6,0xC6,0x7C,0,0,0,0},
+    /* p */ {0,0,0,0,0,0xDC,0x66,0x66,0x66,0x66,0x66,0x7C,0x60,0x60,0xF0,0},
+    /* q */ {0,0,0,0,0,0x76,0xCC,0xCC,0xCC,0xCC,0xCC,0x7C,0xC,0xC,0x1E,0},
+    /* r */ {0,0,0,0,0,0xDC,0x76,0x66,0x60,0x60,0x60,0xF0,0,0,0,0},
+    /* s */ {0,0,0,0,0,0x7C,0xC6,0x60,0x38,0xC,0xC6,0x7C,0,0,0,0},
+    /* t */ {0,0,0x10,0x30,0x30,0xFC,0x30,0x30,0x30,0x30,0x36,0x1C,0,0,0,0},
+    /* u */ {0,0,0,0,0,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0x76,0,0,0,0},
+    /* v */ {0,0,0,0,0,0xC3,0xC3,0xC3,0xC3,0x66,0x3C,0x18,0,0,0,0},
+    /* w */ {0,0,0,0,0,0xC3,0xC3,0xC3,0xDB,0xDB,0xFF,0x66,0,0,0,0},
+    /* x */ {0,0,0,0,0,0xC3,0x66,0x3C,0x18,0x3C,0x66,0xC3,0,0,0,0},
+    /* y */ {0,0,0,0,0,0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0x7E,0x6,0xC,0xF8,0},
+    /* z */ {0,0,0,0,0,0xFE,0xCC,0x18,0x30,0x60,0xC6,0xFE,0,0,0,0},
+    /* { */ {0,0,0xE,0x18,0x18,0x18,0x70,0x18,0x18,0x18,0x18,0xE,0,0,0,0},
+    /* | */ {0,0,0x18,0x18,0x18,0x18,0,0x18,0x18,0x18,0x18,0x18,0,0,0,0},
+    /* } */ {0,0,0x70,0x18,0x18,0x18,0xE,0x18,0x18,0x18,0x18,0x70,0,0,0,0},
+    /* ~ */ {0,0,0x76,0xDC,0,0,0,0,0,0,0,0,0,0,0,0},
+};
+
+static void draw_char(uint64_t x, uint64_t y, char c, uint32_t fg) {
+    if (c < 32 || c > 126) return;
+    const uint8_t *glyph = font[c - 32];
+    for (int row = 0; row < 16; row++) {
+        for (int col = 0; col < 8; col++) {
+            if (glyph[row] & (1 << (7 - col))) {
+                put_pixel(x + col, y + row, fg);
+            }
+        }
+    }
+}
+
+static uint64_t cursor_x = 0, cursor_y = 0;
+
+static void draw_string(const char *str, uint32_t fg) {
+    while (*str) {
+        if (*str == '\n') {
+            cursor_x = 0;
+            cursor_y += 16;
+        } else if (*str == '\r') {
+            cursor_x = 0;
+        } else {
+            draw_char(cursor_x, cursor_y, *str, fg);
+            cursor_x += 8;
+        }
+        str++;
+        if (cursor_x + 8 > fb->width) {
+            cursor_x = 0;
+            cursor_y += 16;
+        }
+        if (cursor_y + 16 > fb->height) {
+            cursor_y = 0;
+        }
+    }
+}
+
+static void clear_screen(uint32_t color) {
+    if (!fb) return;
+    uint32_t *fb_addr = (uint32_t *)fb->address;
+    uint64_t pixel_count = fb->width * fb->height;
+    for (uint64_t i = 0; i < pixel_count; i++) {
+        fb_addr[i] = color;
+    }
+    cursor_x = 0;
+    cursor_y = 0;
+}
+
+static void draw_rect(uint64_t x, uint64_t y, uint64_t w, uint64_t h, uint32_t color) {
+    for (uint64_t row = y; row < y + h && row < fb->height; row++) {
+        for (uint64_t col = x; col < x + w && col < fb->width; col++) {
+            put_pixel(col, row, color);
+        }
+    }
+}
+
+static const char *memmap_type_str(uint64_t type) {
+    switch (type) {
+        case LIMINE_MEMMAP_USABLE: return "Usable";
+        case LIMINE_MEMMAP_RESERVED: return "Reserved";
+        case LIMINE_MEMMAP_ACPI_RECLAIMABLE: return "ACPI Reclaim";
+        case LIMINE_MEMMAP_ACPI_NVS: return "ACPI NVS";
+        case LIMINE_MEMMAP_BAD_MEMORY: return "Bad Memory";
+        case LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE: return "Bootloader";
+        case LIMINE_MEMMAP_EXECUTABLE_AND_MODULES: return "Kernel/Modules";
+        case LIMINE_MEMMAP_FRAMEBUFFER: return "Framebuffer";
+        default: return "Unknown";
+    }
+}
+
+static char hex_chars[] = "0123456789ABCDEF";
+
+static void print_hex(uint64_t val) {
+    char buf[19];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < 16; i++) {
+        buf[17 - i] = hex_chars[(val >> (i * 4)) & 0xF];
+    }
+    buf[18] = 0;
+    draw_string(buf, rgb(0xFF, 0xFF, 0xFF));
+}
+
+static void print_dec(uint64_t val) {
+    char buf[21];
+    int i = 19;
+    buf[20] = 0;
+    if (val == 0) {
+        buf[19] = '0';
+        draw_string(&buf[19], rgb(0xFF, 0xFF, 0xFF));
+        return;
+    }
+    while (val > 0 && i >= 0) {
+        buf[i--] = '0' + (val % 10);
+        val /= 10;
+    }
+    draw_string(&buf[i + 1], rgb(0xFF, 0xFF, 0xFF));
+}
+
+void _start(void) {
+    /* Initialize serial for debugging */
+    serial_init();
+    serial_write_str("\n\n[SlopOS] Kernel started!\n");
+
+    serial_write_str("[SlopOS] Checking boot responses...\n");
+
+    if (!framebuffer_request.response) {
+        serial_write_str("[SlopOS] ERROR: No framebuffer response!\n");
+        for (;;) { __asm__("hlt"); }
+    }
+
+    if (framebuffer_request.response->framebuffer_count < 1) {
+        serial_write_str("[SlopOS] ERROR: No framebuffers!\n");
+        for (;;) { __asm__("hlt"); }
+    }
+
+    serial_write_str("[SlopOS] Framebuffer OK, checking HHDM...\n");
+
+    fb = framebuffer_request.response->framebuffers[0];
+    hhdm_offset = hhdm_request.response ? hhdm_request.response->offset : 0;
+
+    {
+        char buf[32]; uint64_t addr = (uint64_t)fb->address;
+        for(int i=15;i>=0;i--) buf[15-i]="0123456789ABCDEF"[(addr>>(i*4))&0xF];
+        buf[16]=0; serial_write_str("[SlopOS] FB phys: 0x"); serial_write_str(buf); serial_write_str("\n");
+        addr = hhdm_offset;
+        for(int i=15;i>=0;i--) buf[15-i]="0123456789ABCDEF"[(addr>>(i*4))&0xF];
+        buf[16]=0; serial_write_str("[SlopOS] HHDM off: 0x"); serial_write_str(buf); serial_write_str("\n");
+    }
+
+    serial_write_str("[SlopOS] Clearing screen...\n");
+
+    /* Clear screen with SlopOS blue */
+    clear_screen(rgb(0x18, 0x2C, 0x50));
+
+    serial_write_str("[SlopOS] Screen cleared, drawing UI...\n");
+
+    /* Draw title bar */
+    draw_rect(0, 0, fb->width, 28, rgb(0x10, 0x20, 0x38));
+
+    /* Draw SlopOS logo area */
+    draw_rect(10, 40, fb->width - 20, 80, rgb(0x1E, 0x38, 0x60));
+    cursor_x = 40;
+    cursor_y = 48;
+    draw_string("  _____ _       _____ _____ \n", rgb(0xFF, 0xCC, 0x00));
+    cursor_x = 40;
+    draw_string(" / ____| |     |  __ / ____|\n", rgb(0xFF, 0xCC, 0x00));
+    cursor_x = 40;
+    draw_string("| (___ | | ___ | |  | (___  \n", rgb(0xFF, 0xCC, 0x00));
+    cursor_x = 40;
+    draw_string(" \\___ \\| |/ _ \\| |   \\___ \\ \n", rgb(0xFF, 0xCC, 0x00));
+    cursor_x = 40;
+    draw_string(" ____) | | (_) | |__ ____| |\n", rgb(0xFF, 0xCC, 0x00));
+    cursor_x = 40;
+    draw_string("|_____/|_|\\___/|____|_____/ \n", rgb(0xFF, 0xCC, 0x00));
+
+    /* System info */
+    cursor_x = 10;
+    cursor_y = 140;
+    draw_string("SlopOS v0.1.0 - x86_64", rgb(0xAA, 0xCC, 0xFF));
+
+    cursor_x = 10;
+    cursor_y = 164;
+    draw_string("Bootloader: ", rgb(0xAA, 0xCC, 0xFF));
+    if (bootloader_info_request.response) {
+        draw_string(bootloader_info_request.response->name, rgb(0xFF, 0xFF, 0xFF));
+        draw_string(" ", rgb(0xFF, 0xFF, 0xFF));
+        draw_string(bootloader_info_request.response->version, rgb(0xFF, 0xFF, 0xFF));
+        serial_write_str("[SlopOS] Bootloader: ");
+        serial_write_str(bootloader_info_request.response->name);
+        serial_write_str(" ");
+        serial_write_str(bootloader_info_request.response->version);
+        serial_write_str("\n");
+    }
+
+    serial_write_str("[SlopOS] UI drawn, entering idle loop.\n");
+
+    cursor_x = 10;
+    cursor_y = 180;
+    draw_string("Framebuffer: ", rgb(0xAA, 0xCC, 0xFF));
+    print_dec(fb->width);
+    draw_string("x", rgb(0xFF, 0xFF, 0xFF));
+    print_dec(fb->height);
+    draw_string(" @ ", rgb(0xFF, 0xFF, 0xFF));
+    print_dec(fb->bpp);
+    draw_string("bpp", rgb(0xFF, 0xFF, 0xFF));
+
+    cursor_x = 10;
+    cursor_y = 196;
+    draw_string("Memory Map:", rgb(0xAA, 0xCC, 0xFF));
+
+    if (memmap_request.response) {
+        uint64_t total_usable = 0;
+        uint64_t entry_count = memmap_request.response->entry_count;
+        cursor_y = 212;
+        for (uint64_t i = 0; i < entry_count; i++) {
+            struct limine_memmap_entry *e = memmap_request.response->entries[i];
+            if (e->type == LIMINE_MEMMAP_USABLE) {
+                total_usable += e->length;
+            }
+            if (cursor_y + 16 > fb->height - 30) break;
+            cursor_x = 20;
+            print_hex(e->base);
+            draw_string(" - ", rgb(0xFF, 0xFF, 0xFF));
+            print_hex(e->base + e->length);
+            draw_string(" : ", rgb(0xFF, 0xFF, 0xFF));
+            draw_string(memmap_type_str(e->type), rgb(0x88, 0xCC, 0x88));
+            cursor_y += 16;
+        }
+
+        cursor_x = 10;
+        draw_string("Total usable: ", rgb(0xAA, 0xCC, 0xFF));
+        print_dec(total_usable / (1024 * 1024));
+        draw_string(" MB", rgb(0xFF, 0xFF, 0xFF));
+    }
+
+    serial_write_str("[SlopOS] Initializing PMM...\n");
+    pmm_init(memmap_request.response);
+    serial_write_str("[SlopOS] Initializing GDT...\n");
+    gdt_init();
+    serial_write_str("[SlopOS] Initializing IDT...\n");
+    idt_init();
+
+    /* Draw a simple desktop-like area */
+    draw_rect(0, fb->height - 40, fb->width, 40, rgb(0x10, 0x20, 0x38));
+    cursor_x = 10;
+    cursor_y = fb->height - 32;
+    draw_string("[SlopOS Desktop] - System Ready", rgb(0x88, 0xCC, 0x88));
+
+    /* Keyboard input loop with display */
+    uint64_t input_x = 10;
+    uint64_t input_y = fb->height - 80;
+    char input_buffer[256];
+    int input_pos = 0;
+    draw_rect(0, input_y - 5, fb->width, 22, rgb(0x18, 0x30, 0x50));
+    cursor_x = input_x;
+    cursor_y = input_y;
+    draw_string("> ", rgb(0xFF, 0xFF, 0xFF));
+
+    for (;;) {
+        __asm__("hlt");
+        int c = keyboard_getchar();
+        if (c > 0) {
+            if (c == '\n') {
+                if (input_pos > 0) {
+                    input_buffer[input_pos] = 0;
+                    cursor_x = input_x + 16;
+                    cursor_y = input_y;
+                    draw_string(input_buffer, rgb(0x88, 0xFF, 0x88));
+                    input_pos = 0;
+                    cursor_y += 16;
+                    if (cursor_y + 16 > fb->height - 46) {
+                        /* Scroll the input area */
+                        input_y -= 16;
+                    }
+                    cursor_x = input_x;
+                    cursor_y = input_y;
+                    draw_rect(0, input_y - 5, fb->width, 22, rgb(0x18, 0x30, 0x50));
+                    draw_string("> ", rgb(0xFF, 0xFF, 0xFF));
+                }
+            } else if (c == '\b' || c == 127) {
+                if (input_pos > 0) {
+                    input_pos--;
+                    uint64_t bx = input_x + 16 + input_pos * 8;
+                    put_pixel(bx, input_y + 8, rgb(0x18, 0x30, 0x50));
+                    draw_rect(bx, input_y, 8, 16, rgb(0x18, 0x30, 0x50));
+                }
+            } else if (input_pos < 250) {
+                input_buffer[input_pos++] = c;
+                uint64_t cx = input_x + 16 + (input_pos - 1) * 8;
+                uint64_t cy = input_y;
+                /* Redraw the character area */
+                draw_rect(cx, cy, 8, 16, rgb(0x18, 0x30, 0x50));
+                /* Draw the character */
+                if (c >= 32 && c <= 126) {
+                    const uint8_t *glyph = font[c - 32];
+                    for (int row = 0; row < 16; row++) {
+                        for (int col = 0; col < 8; col++) {
+                            if (glyph[row] & (1 << (7 - col))) {
+                                put_pixel(cx + col, cy + row, rgb(0xFF, 0xFF, 0xFF));
+                            }
+                        }
+                    }
+                }
+            }
+            serial_write_str("[SlopOS] Key: '");
+            serial_write(c);
+            serial_write_str("'\n");
+        }
+    }
+}

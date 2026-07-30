@@ -1,0 +1,15 @@
+# Build artifacts
+build/
+*.iso
+*.o
+*.elf
+
+# Limine source (submodule or external)
+limine-src/
+
+# Limine binary deploy tool build artifact
+limine-binary/limine
+
+# Downloaded archives
+*.tar.xz
+*.tar.gz
