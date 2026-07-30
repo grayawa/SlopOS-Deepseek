@@ -415,13 +415,16 @@ void _start(void) {
     wm_init(fb->width, fb->height);
 
     /* Create a terminal window */
-    struct window *term = wm_create_window(50, 50, 480, 320, "Terminal");
+    struct window *term = wm_create_window(50, 50, 400, 240, "Terminal");
     if (term) wm_focus_window(term);
 
     /* Redraw desktop */
     wm_draw_all();
 
     int last_mx = 400, last_my = 300;
+    /* Saved pixels under cursor */
+    uint32_t cursor_saved[6][6];
+    int cursor_drawn = 0;
 
     for (;;) {
         __asm__("hlt");
@@ -434,8 +437,8 @@ void _start(void) {
 
         if (mx < 0) mx = 0;
         if (my < 0) my = 0;
-        if (mx >= (int)fb->width) mx = fb->width - 1;
-        if (my >= (int)fb->height) my = fb->height - 1;
+        if (mx >= (int)fb->width) mx = mx % fb->width;
+        if (my >= (int)fb->height) my = my % fb->height;
 
         /* Handle keyboard input */
         if (c > 0) {
@@ -450,12 +453,11 @@ void _start(void) {
                     focused->cur_col = 0;
                     focused->cur_row++;
                     if (focused->cur_row >= rows) {
-                        /* Scroll up */
                         for (int r = 0; r < rows - 1; r++)
-                            for (int col = 0; col < cols; col++)
-                                focused->text[r * 128 + col] = focused->text[(r+1) * 128 + col];
-                        for (int col = 0; col < cols; col++)
-                            focused->text[(rows-1) * 128 + col] = ' ';
+                            for (int co = 0; co < cols; co++)
+                                focused->text[r * 128 + co] = focused->text[(r+1) * 128 + co];
+                        for (int co = 0; co < cols; co++)
+                            focused->text[(rows-1) * 128 + co] = ' ';
                         focused->cur_row = rows - 1;
                     }
                     redraw = 1;
@@ -466,36 +468,72 @@ void _start(void) {
                         redraw = 1;
                     }
                 } else if (c >= 32 && c < 127) {
+                    focused->text[focused->cur_row * 128 + focused->cur_col] = c;
+                    focused->cur_col++;
                     if (focused->cur_col >= cols) {
                         focused->cur_col = 0;
                         focused->cur_row++;
                         if (focused->cur_row >= rows) {
                             for (int r = 0; r < rows - 1; r++)
-                                for (int col = 0; col < cols; col++)
-                                    focused->text[r * 128 + col] = focused->text[(r+1) * 128 + col];
-                            for (int col = 0; col < cols; col++)
-                                focused->text[(rows-1) * 128 + col] = ' ';
+                                for (int co = 0; co < cols; co++)
+                                    focused->text[r * 128 + co] = focused->text[(r+1) * 128 + co];
+                            for (int co = 0; co < cols; co++)
+                                focused->text[(rows-1) * 128 + co] = ' ';
                             focused->cur_row = rows - 1;
                         }
                     }
-                    focused->text[focused->cur_row * 128 + focused->cur_col] = c;
-                    focused->cur_col++;
                     redraw = 1;
                 }
             }
         }
 
-        /* Handle mouse */
-        if (mx != last_mx || my != last_my || mb) {
-            wm_handle_mouse(mx, my, mb);
-            if (mx != last_mx || my != last_my) redraw = 1;
-            last_mx = mx; last_my = my;
+        /* Restore pixels under old cursor */
+        if (cursor_drawn && (mx != last_mx || my != last_my)) {
+            for (int dy = 0; dy < 6; dy++)
+                for (int dx = 0; dx < 6; dx++)
+                    fb_put_pixel(last_mx + dx - 2, last_my + dy - 2, cursor_saved[dy][dx]);
+            cursor_drawn = 0;
         }
+
+        /* Handle mouse clicks */
+        if (mb) {
+            wm_handle_mouse(mx, my, mb);
+            redraw = 1;
+        }
+
+        /* Save pixels under new cursor position and draw */
+        {
+            int cx = mx - 2, cy = my - 2;
+            for (int dy = 0; dy < 6; dy++) {
+                for (int dx = 0; dx < 6; dx++) {
+                    int px = cx + dx, py = cy + dy;
+                    if (px >= 0 && px < (int)fb->width && py >= 0 && py < (int)fb->height) {
+                        uint32_t *fb_ptr = (uint32_t *)fb->address;
+                        cursor_saved[dy][dx] = fb_ptr[py * (fb->pitch / 4) + px];
+                    } else {
+                        cursor_saved[dy][dx] = 0;
+                    }
+                }
+            }
+        }
+        wm_draw_mouse(mx, my);
+        cursor_drawn = 1;
+        last_mx = mx; last_my = my;
 
         if (redraw) {
             wm_draw_all();
-            wm_draw_mouse(mx, my);
-        } else {
+            /* Re-save and redraw cursor after full redraw */
+            {
+                int cx = mx - 2, cy = my - 2;
+                for (int dy = 0; dy < 6; dy++)
+                    for (int dx = 0; dx < 6; dx++) {
+                        int px = cx + dx, py = cy + dy;
+                        if (px >= 0 && px < (int)fb->width && py >= 0 && py < (int)fb->height) {
+                            uint32_t *fb_ptr = (uint32_t *)fb->address;
+                            cursor_saved[dy][dx] = fb_ptr[py * (fb->pitch / 4) + px];
+                        }
+                    }
+            }
             wm_draw_mouse(mx, my);
         }
     }
