@@ -1,0 +1,8 @@
+build/
+*.o
+*.iso
+*.elf
+*.ppm
+*.png
+*.log
+qemu-monitor.sock
