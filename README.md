@@ -15,7 +15,7 @@
 | `v1` | Deepseek-V4-Flash | 无 | 有很多 Bug |
 | `v2` | Deepseek-V4-Flash-Visual-Exp | 有 | 问题少了一点 |
 
-## 提示词 (Prompt, 即 paste_1.txt)
+## 提示词 (Prompt)
 
 以下提示词是生成 SlopOS 时使用的原始提示词:
 
