@@ -61,7 +61,8 @@ QEMU (via serial logs and framebuffer screenshots).
   sets up a Linux-style initial stack (argc/argv/envp).
 * **Verified**: a static, freestanding Linux x86-64 ELF (compiled with the
   host `gcc`, using raw `write()`/`exit()` syscalls) loads, runs in ring 3,
-  and prints to the terminal.
+  and prints to the terminal. Three bundled programs (`hello`, `primes`,
+  `cat`) are run from the shell with the `run <program>` command.
 
 ## Not implemented / limitations
 

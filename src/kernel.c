@@ -149,7 +149,6 @@ void kernel_main(u32 magic, u32 info_addr)
 
     if (find_module((u64)info_addr, "hello", &mod_addr, &mod_size)) {
         program_register("hello", mod_addr, mod_size);
-        program_run("hello");
     }
     if (find_module((u64)info_addr, "primes", &mod_addr, &mod_size)) {
         program_register("primes", mod_addr, mod_size);
