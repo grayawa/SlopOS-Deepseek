@@ -9,9 +9,10 @@
 #define TASK_BLOCKED 3
 
 typedef struct task {
-    /* context (must match task.S offsets) */
+    /* context (must match sched.S offsets) */
     u64 rsp, rbp, rbx, r12, r13, r14, r15;   /* 0..48 */
-    u64 pml4;                                 /* 56 */
+    u64 rflags;                               /* 56 */
+    u64 pml4;                                 /* 64 */
     /* end of asm-relevant fields */
     u64 entry;                                /* user entry / kernel fn */
     u64 kstack_top;

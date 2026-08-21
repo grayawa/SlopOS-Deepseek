@@ -3,7 +3,7 @@
 .code64
 
 /* void context_switch(task_t *prev, task_t *next)
- * prev/next are task_t*; the context fields are at offsets 0..56.
+ * prev/next are task_t*; the context fields are at offsets 0..64.
  */
 .global context_switch
 .type context_switch, @function
@@ -15,6 +15,8 @@ context_switch:
     movq %r13, 32(%rdi)
     movq %r14, 40(%rdi)
     movq %r15, 48(%rdi)
+    pushfq
+    popq 56(%rdi)              /* save RFLAGS (offset 56) */
 
     movq 0(%rsi), %rsp
     movq 8(%rsi), %rbp
@@ -24,6 +26,9 @@ context_switch:
     movq 40(%rsi), %r14
     movq 48(%rsi), %r15
     movq 56(%rsi), %rax
+    pushq %rax
+    popfq                      /* restore RFLAGS */
+    movq 64(%rsi), %rax
     movq %rax, %cr3
     ret
 

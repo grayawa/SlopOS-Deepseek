@@ -72,13 +72,20 @@ QEMU (via serial logs and framebuffer screenshots).
   `vDSO`, `clone`/`fork`/`execve`, signals, `arch_prctl`/FS-base, or the
   full file system call surface. Only freestanding static ELF64 binaries
   using the implemented syscalls run.
-* `read` returns EOF; `open` returns -1; there is no real filesystem yet.
+* `read` returns data from the ramfs; `write` to regular files is not
+  supported (read-only filesystem).
+* The bundled `primes` program is built with `-O0`: an `-O2` build (which
+  uses SSE vectorization) intermittently faults in ring 3 (a stack-alignment/
+  context issue under investigation). `hello` and `cat` build and run with
+  `-O2`.
 
 ### Preemptive multitasking
 * The scheduler switches between tasks on `yield`/`exit`. Timer-driven
-  preemption of user tasks is not enabled: the timer is used for the clock,
-  and user programs run to completion. (User mode runs with interrupts
-  enabled, but the timer does not context-switch them.)
+  preemption of user tasks is not enabled: user programs run with interrupts
+  disabled (IF clear) to avoid a timer/iretq interaction, and run to
+  completion. The timer is used for the clock. (RFLAGS are saved/restored
+  across context switches so the boot task resumes with interrupts enabled,
+  keeping the keyboard/mouse responsive after a user program runs.)
 
 ### Filesystem
 * Only an in-memory ramfs with a handful of pre-registered files. There is no

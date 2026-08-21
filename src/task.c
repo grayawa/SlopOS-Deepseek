@@ -70,6 +70,7 @@ task_t *task_create_kernel(const char *name, void (*fn)(void))
     /* stack: fn is the return target for the initial context_switch */
     *(u64 *)(t->kstack_top - 8) = (u64)fn;
     t->rsp = t->kstack_top - 8;
+    t->rflags = 0x202;         /* IF set for kernel tasks */
 
     t->id = next_id++;
     t->state = TASK_READY;
@@ -99,11 +100,12 @@ task_t *task_create_user(const char *name, u64 entry, u64 user_stack_top, u64 pm
     u64 *sp = (u64 *)t->kstack_top;
     *--sp = 0x23;                 /* user ss  */
     *--sp = user_stack_top;       /* user rsp */
-    *--sp = 0x202;                /* rflags (IF set) */
+    *--sp = 0x2;                  /* rflags (IF clear: no timer preemption of user) */
     *--sp = 0x1B;                 /* user cs  */
     *--sp = entry;                /* user rip */
     *--sp = (u64)task_enter_user; /* ret target for context_switch */
     t->rsp = (u64)sp;
+    t->rflags = 0x202;         /* kernel-mode rflags before iretq (IF set) */
 
     t->id = next_id++;
     t->state = TASK_READY;
