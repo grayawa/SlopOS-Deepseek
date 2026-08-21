@@ -153,5 +153,8 @@ u64 elf_setup_stack(u64 user_stack_top, int argc, char **argv)
     *--sp = 0;                 /* NULL argv terminator */
     *--sp = (u64)str;          /* argv[0] */
     *--sp = 1;                 /* argc */
+    /* align the initial stack to 8 mod 16 (as gcc's _start expects) */
+    if (((u64)sp & 0xF) == 0)
+        sp = (u64 *)((u64)sp - 8);
     return (u64)sp;
 }

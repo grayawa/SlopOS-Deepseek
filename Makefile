@@ -44,7 +44,7 @@ $(BUILD)/primes.elf: programs/primes.c
 	@mkdir -p $(BUILD)
 	$(CC) -m64 -ffreestanding -fno-pie -no-pie -fno-stack-protector -fno-builtin \
 	    -fno-asynchronous-unwind-tables -nostdlib -static \
-	    -Wl,-Ttext=0x400000 -Wl,-e,_start -Wl,--build-id=none -O0 \
+	    -Wl,-Ttext=0x400000 -Wl,-e,_start -Wl,--build-id=none -O2 \
 	    -o $@ programs/primes.c
 
 $(BUILD)/cat.elf: programs/cat.c

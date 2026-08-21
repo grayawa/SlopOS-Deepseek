@@ -92,9 +92,6 @@ QEMU (via serial logs and framebuffer screenshots).
 * The kernel identity-maps low memory; user processes share the kernel's
   low-memory page tables (a latent security simplification for trusted
   user programs).
-* User programs compiled with aggressive `-O2` SSE vectorization can hit a
-  stack-alignment/context issue (the bundled `primes` program is built with
-  `-O0` to avoid it); this is under investigation.
 
 ## Verification methodology
 
