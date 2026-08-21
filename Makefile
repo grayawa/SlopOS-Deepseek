@@ -15,7 +15,8 @@ OBJS    := $(BUILD)/boot.o $(BUILD)/kernel.o $(BUILD)/serial.o \
            $(BUILD)/printk.o $(BUILD)/gdt.o $(BUILD)/idt.o \
            $(BUILD)/isr.o $(BUILD)/isr_table.o $(BUILD)/timer.o \
            $(BUILD)/pmm.o $(BUILD)/vmm.o $(BUILD)/keyboard.o \
-           $(BUILD)/mouse.o
+           $(BUILD)/mouse.o $(BUILD)/kmalloc.o $(BUILD)/wm.o \
+           $(BUILD)/terminal.o
 
 .PHONY: all iso run clean font gen
 

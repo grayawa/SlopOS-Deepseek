@@ -163,3 +163,32 @@ void kprintf(const char *fmt, ...)
     kformat(serial_out, NULL, fmt, ap);
     __builtin_va_end(ap);
 }
+
+/* buffer sink for ksprintf */
+struct buf_sink {
+    char *buf;
+    size_t size;
+    size_t len;
+};
+static void buf_out(char c, void *ctx)
+{
+    struct buf_sink *s = (struct buf_sink *)ctx;
+    if (s->len + 1 < s->size)
+        s->buf[s->len] = c;
+    s->len++;
+}
+
+int ksprintf(char *buf, size_t size, const char *fmt, ...)
+{
+    struct buf_sink s;
+    s.buf = buf;
+    s.size = size;
+    s.len = 0;
+    __builtin_va_list ap;
+    __builtin_va_start(ap, fmt);
+    kformat(buf_out, &s, fmt, ap);
+    __builtin_va_end(ap);
+    if (size > 0)
+        buf[s.len < size ? s.len : size - 1] = '\0';
+    return (int)s.len;
+}

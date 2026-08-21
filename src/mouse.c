@@ -8,6 +8,7 @@
 
 static mouse_state_t state;
 static mouse_handler_t handler;
+static volatile int dirty;
 
 static void ps2_wait_write(void)
 {
@@ -63,9 +64,11 @@ static void mouse_irq(isr_frame_t *frame)
         state.dy = (i8)dy;
         if (state.x + dx < g_fb.width && (int)(state.x + dx) >= 0)
             state.x += dx;
-        if (state.y + dy < g_fb.height && (int)(state.y + dy) >= 0)
-            state.y += dy;
+        /* PS/2 mouse Y is inverted relative to screen coordinates */
+        if ((int)state.y - dy < g_fb.height && (int)(state.y - dy) >= 0)
+            state.y -= dy;
         idx = 0;
+        dirty = 1;
         if (handler)
             handler(&state);
     }
@@ -79,6 +82,16 @@ void mouse_set_handler(mouse_handler_t h)
 void mouse_get_state(mouse_state_t *st)
 {
     *st = state;
+}
+
+int mouse_dirty(void)
+{
+    return dirty;
+}
+
+void mouse_clear_dirty(void)
+{
+    dirty = 0;
 }
 
 void mouse_init(void)

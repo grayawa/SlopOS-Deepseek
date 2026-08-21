@@ -8,6 +8,7 @@
 
 void timer_init(u32 hz);
 u64 timer_ticks(void);
+u64 timer_seconds(void);
 void timer_sleep_ms(u32 ms);
 void timer_set_callback(void (*cb)(void));
 

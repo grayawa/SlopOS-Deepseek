@@ -28,6 +28,11 @@ u64 timer_ticks(void)
     return ticks;
 }
 
+u64 timer_seconds(void)
+{
+    return ticks / hz;
+}
+
 void timer_sleep_ms(u32 ms)
 {
     u64 target = ticks + (u64)((u64)ms * hz / 1000);

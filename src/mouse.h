@@ -20,5 +20,7 @@ typedef void (*mouse_handler_t)(mouse_state_t *st);
 void mouse_init(void);
 void mouse_set_handler(mouse_handler_t h);
 void mouse_get_state(mouse_state_t *st);
+int  mouse_dirty(void);
+void mouse_clear_dirty(void);
 
 #endif

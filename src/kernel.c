@@ -9,8 +9,11 @@
 #include "timer.h"
 #include "pmm.h"
 #include "vmm.h"
+#include "kmalloc.h"
 #include "keyboard.h"
 #include "mouse.h"
+#include "wm.h"
+#include "terminal.h"
 
 /* ---- multiboot2 info parsing ---- */
 #define MB2_TAG_END         0
@@ -52,17 +55,20 @@ static u32 parse_framebuffer(u64 info_addr)
     return 0;
 }
 
-/* ---- desktop colors ---- */
-static u32 c_bg, c_taskbar, c_text, c_accent, c_cursor;
-
-static void draw_desktop(void)
+/* draw callback for the "About SlopOS" window */
+static void about_draw(window_t *w)
 {
-    fb_clear(c_bg);
-    /* taskbar */
-    fb_fill_rect(0, g_fb.height - 28, g_fb.width, 28, c_taskbar);
-    fb_fill_rect(0, g_fb.height - 28, g_fb.width, 2, c_accent);
-    fb_draw_text(8, g_fb.height - 22, "SlopOS Desktop", c_text, c_taskbar);
-    fb_draw_text(g_fb.width - 150, g_fb.height - 22, "x86-64 | input test", c_text, c_taskbar);
+    (void)w;
+    u32 bg = RGB(0x14, 0x18, 0x24);
+    u32 fg = RGB(0xd8, 0xde, 0xe9);
+    u32 ac = RGB(0x3f, 0x9a, 0xff);
+    u32 gr = RGB(0x7a, 0x84, 0x99);
+    fb_fill_rect(w->cx, w->cy, w->cw, w->ch, bg);
+    fb_draw_text(w->cx + 8, w->cy + 8, "SlopOS 0.1", ac, bg);
+    fb_draw_text(w->cx + 8, w->cy + 24, "From-scratch x86-64 OS", fg, bg);
+    fb_draw_text(w->cx + 8, w->cy + 40, "Boots in QEMU (multiboot2)", gr, bg);
+    fb_draw_text(w->cx + 8, w->cy + 56, "Long mode, paging, interrupts", gr, bg);
+    fb_draw_text(w->cx + 8, w->cy + 72, "License: 0BSD", gr, bg);
 }
 
 void kernel_main(u32 magic, u32 info_addr)
@@ -77,71 +83,43 @@ void kernel_main(u32 magic, u32 info_addr)
         for (;;) hlt();
     }
 
-    /* init CPU + subsystems */
     gdt_init();
-    kputs("  gdt ok\n");
     idt_init();
-    kputs("  idt ok\n");
     pmm_init((u64)info_addr);
     vmm_init();
+    kmalloc_init();
     timer_init(100);
     kbd_init();
     mouse_init();
+
+    wm_init();
+    window_t *about = wm_create_window(560, 60, 400, 240, "About SlopOS",
+                                      about_draw, NULL, NULL, NULL);
+    terminal_t *term = terminal_create(60, 60, 620, 400, "Terminal");
+    (void)term; (void)about;
+
     sti();
+    kprintf("  boot complete - desktop up\n");
+    wm_redraw();
 
-    c_bg      = RGB(0x1a, 0x1e, 0x2b);
-    c_taskbar = RGB(0x24, 0x2a, 0x3b);
-    c_text    = RGB(0xd8, 0xde, 0xe9);
-    c_accent  = RGB(0x3f, 0x9a, 0xff);
-    c_cursor  = RGB(0xe8, 0xec, 0xf2);
-
-    draw_desktop();
-
-    u64 last_print = 0;
-    struct key_event kev;
-    static u32 log_y = 8;
-    static u32 log_x = 8;
-    u32 px = g_fb.width / 2, py = g_fb.height / 2;
-    int cursor_valid = 0;
-
-    kprintf("  boot complete\n");
-
+    u64 last_redraw = 0;
     for (;;) {
-        /* keyboard */
-        while (kbd_get_event(&kev)) {
-            if (kev.press) {
-                if (kev.ascii == '\n') {
-                    log_y += 16;
-                    log_x = 8;
-                } else if (kev.ascii == '\b') {
-                    if (log_x > 8) log_x -= 8;
-                } else if (kev.ascii >= 32) {
-                    fb_draw_char(log_x, log_y, (char)kev.ascii, c_text, c_bg);
-                    log_x += 8;
-                }
-                if (log_y > g_fb.height - 60) {
-                    log_y = 8;
-                    /* clear log region */
-                    fb_fill_rect(0, 8, g_fb.width, g_fb.height - 60, c_bg);
-                }
-            }
+        struct key_event kev;
+        while (kbd_get_event(&kev))
+            wm_handle_key(kev);
+
+        if (mouse_dirty()) {
+            mouse_state_t ms;
+            mouse_get_state(&ms);
+            wm_handle_mouse(&ms);
+            mouse_clear_dirty();
         }
 
-        /* mouse cursor */
-        mouse_state_t ms;
-        mouse_get_state(&ms);
-        if (cursor_valid) {
-            fb_fill_rect(px, py, 12, 16, c_bg);
-        }
-        px = ms.x; py = ms.y;
-        fb_fill_rect(px, py, 12, 16, c_cursor);
-        fb_fill_rect(px, py, 12, 2, c_accent);
-        cursor_valid = 1;
-
-        /* timer tick report */
-        if (timer_ticks() - last_print >= 100) {
-            last_print = timer_ticks();
-            kprintf("[timer] ticks=%llu\n", timer_ticks());
+        /* batch repaints: redraw once per input batch or ~1s for the clock */
+        if (wm_is_dirty() || timer_ticks() - last_redraw >= 100) {
+            last_redraw = timer_ticks();
+            wm_redraw();
+            wm_clear_dirty();
         }
 
         __asm__ volatile ("hlt");
