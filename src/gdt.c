@@ -1,5 +1,6 @@
 #include "gdt.h"
 #include "lib.h"
+#include "port.h"
 
 struct tss {
     u32 reserved0;
@@ -87,6 +88,16 @@ void gdt_init(void)
 
     /* Load the TSS */
     __asm__ volatile ("ltr %%ax" : : "a"(GDT_TSS));
+
+    /* Enable SSE/FPU (so user programs compiled for x86-64 can use it) */
+    u64 cr0 = read_cr0();
+    cr0 &= ~(1ULL << 2);   /* clear CR0.EM */
+    cr0 |= (1ULL << 1);    /* set CR0.MP */
+    write_cr0(cr0);
+    u64 cr4 = read_cr4();
+    cr4 |= (1ULL << 9);    /* CR4.OSFXSR */
+    cr4 |= (1ULL << 10);   /* CR4.OSXMMEXCPT */
+    write_cr4(cr4);
 }
 
 void gdt_set_tss_rsp0(u64 rsp0)

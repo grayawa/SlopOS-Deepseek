@@ -4,9 +4,41 @@
 #include "kmalloc.h"
 #include "timer.h"
 #include "pmm.h"
+#include "syscall.h"
+#include "program.h"
 #include "printk.h"
 
 static const char *prompt_str = "slopos> ";
+static terminal_t *console_term;
+
+static void console_write_to_term(const char *buf, size_t len)
+{
+    if (console_term) {
+        size_t i;
+        for (i = 0; i < len; i++)
+            terminal_putc(console_term, buf[i]);
+    }
+}
+
+void terminal_bind_console(terminal_t *t)
+{
+    console_term = t;
+    console_set_writer(console_write_to_term);
+}
+
+void terminal_run_command(terminal_t *t, const char *cmd)
+{
+    while (*cmd == ' ') cmd++;
+    if (strncmp(cmd, "run ", 4) == 0)
+        cmd += 4;
+    if (*cmd == '\0') {
+        terminal_println(t, "usage: run <program>");
+        return;
+    }
+    terminal_println(t, "Running user program...");
+    program_run(cmd);
+    terminal_println(t, "Program exited.");
+}
 
 void terminal_set_prompt(const char *p)
 {
@@ -112,6 +144,8 @@ static void shell_exec(terminal_t *t, const char *cmd)
     } else if (strcmp(cmd, "about") == 0) {
         terminal_println(t, "SlopOS - a from-scratch x86-64 operating system.");
         terminal_println(t, "Licensed 0BSD. Not derived from any existing OS.");
+    } else if (strcmp(cmd, "run") == 0 || strncmp(cmd, "run ", 4) == 0) {
+        terminal_run_command(t, cmd);
     } else {
         terminal_print(t, "command not found: ");
         terminal_println(t, cmd);

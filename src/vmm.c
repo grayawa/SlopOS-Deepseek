@@ -62,23 +62,24 @@ int vmm_map_page(u64 pml4_addr, u64 virt, u64 phys, u64 flags)
     u64 i3 = PDPT_INDEX(virt);
     u64 i2 = PD_INDEX(virt);
     u64 i1 = PT_INDEX(virt);
+    u64 up = flags & PTE_U;   /* propagate the user bit up the hierarchy */
 
     if (!(pml4[i4] & PTE_P)) {
         u64 t = alloc_table();
         if (!t) return -1;
-        pml4[i4] = t | PTE_P | PTE_W;
+        pml4[i4] = t | PTE_P | PTE_W | up;
     }
     u64 *pdpt = table_at(pml4[i4] & PTE_ADDR_MASK);
     if (!(pdpt[i3] & PTE_P)) {
         u64 t = alloc_table();
         if (!t) return -1;
-        pdpt[i3] = t | PTE_P | PTE_W;
+        pdpt[i3] = t | PTE_P | PTE_W | up;
     }
     u64 *pd = table_at(pdpt[i3] & PTE_ADDR_MASK);
     if (!(pd[i2] & PTE_P)) {
         u64 t = alloc_table();
         if (!t) return -1;
-        pd[i2] = t | PTE_P | PTE_W;
+        pd[i2] = t | PTE_P | PTE_W | up;
     } else if (pd[i2] & PTE_PS) {
         /* huge page present; split into 4K pages */
         u64 t = alloc_table();
@@ -87,8 +88,12 @@ int vmm_map_page(u64 pml4_addr, u64 virt, u64 phys, u64 flags)
         u64 n;
         for (n = 0; n < 512; n++)
             table_at(t)[n] = (base + (n << 12)) | (pd[i2] & 0xFFF);
-        pd[i2] = t | PTE_P | PTE_W;
+        pd[i2] = t | PTE_P | PTE_W | up;
     }
+    /* ensure the user bit is set at every level (the kernel clone may be supervisor) */
+    pml4[i4] |= up;
+    pdpt[i3] |= up;
+    pd[i2] |= up;
     u64 *pt = table_at(pd[i2] & PTE_ADDR_MASK);
     pt[i1] = (phys & PTE_ADDR_MASK) | flags | PTE_P;
     invlpg(virt);
@@ -101,16 +106,17 @@ int vmm_map_2mb(u64 pml4_addr, u64 virt, u64 phys, u64 flags)
     u64 i4 = PML4_INDEX(virt);
     u64 i3 = PDPT_INDEX(virt);
     u64 i2 = PD_INDEX(virt);
+    u64 up = flags & PTE_U;
     if (!(pml4[i4] & PTE_P)) {
         u64 t = alloc_table();
         if (!t) return -1;
-        pml4[i4] = t | PTE_P | PTE_W;
+        pml4[i4] = t | PTE_P | PTE_W | up;
     }
     u64 *pdpt = table_at(pml4[i4] & PTE_ADDR_MASK);
     if (!(pdpt[i3] & PTE_P)) {
         u64 t = alloc_table();
         if (!t) return -1;
-        pdpt[i3] = t | PTE_P | PTE_W;
+        pdpt[i3] = t | PTE_P | PTE_W | up;
     }
     u64 *pd = table_at(pdpt[i3] & PTE_ADDR_MASK);
     pd[i2] = (phys & PTE_ADDR_MASK) | flags | PTE_P | PTE_PS;

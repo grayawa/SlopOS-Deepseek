@@ -16,9 +16,11 @@ OBJS    := $(BUILD)/boot.o $(BUILD)/kernel.o $(BUILD)/serial.o \
            $(BUILD)/isr.o $(BUILD)/isr_table.o $(BUILD)/timer.o \
            $(BUILD)/pmm.o $(BUILD)/vmm.o $(BUILD)/keyboard.o \
            $(BUILD)/mouse.o $(BUILD)/kmalloc.o $(BUILD)/wm.o \
-           $(BUILD)/terminal.o
+           $(BUILD)/terminal.o $(BUILD)/sched.o $(BUILD)/task.o \
+           $(BUILD)/syscall.o $(BUILD)/syscall_asm.o $(BUILD)/elf.o \
+           $(BUILD)/program.o
 
-.PHONY: all iso run clean font gen
+.PHONY: all iso run clean font gen prog
 
 all: iso
 
@@ -28,6 +30,15 @@ font:
 gen:
 	python3 tools/genfont.py src/font8x8.c
 	python3 tools/genisr.py src/isr_table.c src/isr_table.h
+
+prog: $(BUILD)/hello.elf
+
+$(BUILD)/hello.elf: programs/hello.c
+	@mkdir -p $(BUILD)
+	$(CC) -m64 -ffreestanding -fno-pie -no-pie -fno-stack-protector -fno-builtin \
+	    -fno-asynchronous-unwind-tables -nostdlib -static \
+	    -Wl,-Ttext=0x400000 -Wl,-e,_start -Wl,--build-id=none -O2 \
+	    -o $@ programs/hello.c
 
 $(BUILD)/%.o: $(SRC)/%.S
 	@mkdir -p $(BUILD)
@@ -40,10 +51,11 @@ $(BUILD)/%.o: $(SRC)/%.c
 $(BUILD)/slopos.elf: $(OBJS)
 	$(CC) $(LDFLAGS) -T $(SRC)/linker.ld -o $@ $(OBJS)
 
-iso: $(BUILD)/slopos.elf
+iso: $(BUILD)/slopos.elf $(BUILD)/hello.elf
 	rm -rf $(BUILD)/iso
 	mkdir -p $(BUILD)/iso/boot/grub
 	cp $(BUILD)/slopos.elf $(BUILD)/iso/boot/slopos.elf
+	cp $(BUILD)/hello.elf $(BUILD)/iso/boot/hello.elf
 	cp grub/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
 	grub-mkrescue -o $(BUILD)/slopos.iso $(BUILD)/iso >/dev/null 2>&1
 	@echo "built $(BUILD)/slopos.iso"

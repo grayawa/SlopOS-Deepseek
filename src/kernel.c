@@ -14,9 +14,13 @@
 #include "mouse.h"
 #include "wm.h"
 #include "terminal.h"
+#include "task.h"
+#include "syscall.h"
+#include "program.h"
 
 /* ---- multiboot2 info parsing ---- */
 #define MB2_TAG_END         0
+#define MB2_TAG_MODULE      3
 #define MB2_TAG_FRAMEBUFFER 8
 
 struct mb2_tag {
@@ -28,6 +32,32 @@ struct mb2_info {
     u32 total_size;
     u32 reserved;
 };
+
+/* find a multiboot2 module by its command-line name; returns addr/size */
+static int find_module(u64 info_addr, const char *name, u64 *addr_out, u64 *size_out)
+{
+    struct mb2_info *info = (struct mb2_info *)info_addr;
+    u64 ptr = info_addr + 8;
+    u64 end = info_addr + info->total_size;
+    while (ptr + 8 <= end) {
+        struct mb2_tag *tag = (struct mb2_tag *)ptr;
+        if (tag->type == MB2_TAG_END)
+            break;
+        if (tag->type == MB2_TAG_MODULE && tag->size >= 16) {
+            u8 *d = (u8 *)tag;
+            u32 start = *(u32 *)(d + 8);
+            u32 m_end = *(u32 *)(d + 12);
+            const char *cmdline = (const char *)(d + 16);
+            if (cmdline && strcmp(cmdline, name) == 0) {
+                *addr_out = start;
+                *size_out = (u64)m_end - start;
+                return 1;
+            }
+        }
+        ptr += (tag->size + 7) & ~7ULL;
+    }
+    return 0;
+}
 
 static u32 parse_framebuffer(u64 info_addr)
 {
@@ -96,11 +126,24 @@ void kernel_main(u32 magic, u32 info_addr)
     window_t *about = wm_create_window(560, 60, 400, 240, "About SlopOS",
                                       about_draw, NULL, NULL, NULL);
     terminal_t *term = terminal_create(60, 60, 620, 400, "Terminal");
+    terminal_bind_console(term);
     (void)term; (void)about;
 
     sti();
     kprintf("  boot complete - desktop up\n");
     wm_redraw();
+
+    /* ---- set up tasks and run the demo user program ---- */
+    sched_init();
+    syscall_init();
+
+    u64 mod_addr = 0, mod_size = 0;
+    if (find_module((u64)info_addr, "hello", &mod_addr, &mod_size)) {
+        program_register("hello", mod_addr, mod_size);
+        program_run("hello");
+    } else {
+        kputs("  'hello' module not found\n");
+    }
 
     u64 last_redraw = 0;
     for (;;) {

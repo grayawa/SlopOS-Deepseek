@@ -31,10 +31,11 @@ static inline int bm_get(u64 frame)
 /* reserve [base, base+len) */
 static void reserve_range(u64 base, u64 len)
 {
-    u64 start = (base + FRAME_SIZE - 1) & FRAME_MASK;
-    u64 end = (base + len) & FRAME_MASK;
-    u64 f;
-    for (f = start >> 12; f < (end >> 12); f++)
+    u64 start, end, f;
+    if (len == 0) return;
+    start = base & FRAME_MASK;
+    end = (base + len - 1) & FRAME_MASK;
+    for (f = start >> 12; f <= (end >> 12); f++)
         if (f < total_frames)
             bm_set(f);
 }
@@ -42,10 +43,11 @@ static void reserve_range(u64 base, u64 len)
 /* free [base, base+len) */
 static void free_range(u64 base, u64 len)
 {
-    u64 start = base & FRAME_MASK;
-    u64 end = (base + len) & FRAME_MASK;
-    u64 f;
-    for (f = start >> 12; f < (end >> 12); f++)
+    u64 start, end, f;
+    if (len == 0) return;
+    start = base & FRAME_MASK;
+    end = (base + len - 1) & FRAME_MASK;
+    for (f = start >> 12; f <= (end >> 12); f++)
         if (f < total_frames)
             bm_clear(f);
 }
@@ -131,6 +133,21 @@ void pmm_init(u64 info_addr)
     reserve_range(bm_start, bm_bytes);         /* bitmap */
     if (g_fb.mapped)
         reserve_range(g_fb.addr, (u64)g_fb.pitch * g_fb.height);  /* framebuffer */
+
+    /* reserve the multiboot2 info structure and any loaded modules */
+    reserve_range(info_addr, total_size);
+    ptr = info_addr + 8;
+    while (ptr + 8 <= end) {
+        u32 type = *(u32 *)ptr;
+        u32 size = *(u32 *)(ptr + 4);
+        if (type == 0) break;
+        if (type == 3 && size >= 16) {   /* module */
+            u32 mstart = *(u32 *)(ptr + 8);
+            u32 mend = *(u32 *)(ptr + 12);
+            reserve_range(mstart, (u64)mend - mstart);
+        }
+        ptr += (size + 7) & ~7ULL;
+    }
 
     last_alloc = 0x100000;
 

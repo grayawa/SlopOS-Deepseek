@@ -49,6 +49,26 @@ static inline void hlt(void)
 {
     __asm__ volatile ("hlt");
 }
+static inline u64 read_cr0(void)
+{
+    u64 v;
+    __asm__ volatile ("mov %%cr0, %0" : "=r"(v));
+    return v;
+}
+static inline void write_cr0(u64 v)
+{
+    __asm__ volatile ("mov %0, %%cr0" : : "r"(v));
+}
+static inline u64 read_cr4(void)
+{
+    u64 v;
+    __asm__ volatile ("mov %%cr4, %0" : "=r"(v));
+    return v;
+}
+static inline void write_cr4(u64 v)
+{
+    __asm__ volatile ("mov %0, %%cr4" : : "r"(v));
+}
 static inline u64 read_cr2(void)
 {
     u64 v;

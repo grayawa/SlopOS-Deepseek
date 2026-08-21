@@ -25,5 +25,7 @@ void terminal_print(terminal_t *t, const char *s);
 void terminal_println(terminal_t *t, const char *s);
 void terminal_clear(terminal_t *t);
 void terminal_set_prompt(const char *p);
+void terminal_bind_console(terminal_t *t);   /* route write() output here */
+void terminal_run_command(terminal_t *t, const char *cmd);
 
 #endif
