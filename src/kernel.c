@@ -147,6 +147,7 @@ void kernel_main(u32 magic, u32 info_addr)
 
     u64 last_redraw = 0;
     for (;;) {
+        sti();   /* the boot task may resume with IF clear (after a syscall) */
         struct key_event kev;
         while (kbd_get_event(&kev))
             wm_handle_key(kev);

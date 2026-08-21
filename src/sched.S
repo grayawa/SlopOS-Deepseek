@@ -35,6 +35,7 @@ context_switch:
 .global task_enter_user
 .type task_enter_user, @function
 task_enter_user:
+    cli
     iretq
 
 .section .note.GNU-stack,"",@progbits

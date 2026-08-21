@@ -99,7 +99,7 @@ task_t *task_create_user(const char *name, u64 entry, u64 user_stack_top, u64 pm
     u64 *sp = (u64 *)t->kstack_top;
     *--sp = 0x23;                 /* user ss  */
     *--sp = user_stack_top;       /* user rsp */
-    *--sp = 0x2;                  /* rflags (IF clear: no preemption of user) */
+    *--sp = 0x202;                /* rflags (IF set) */
     *--sp = 0x1B;                 /* user cs  */
     *--sp = entry;                /* user rip */
     *--sp = (u64)task_enter_user; /* ret target for context_switch */
