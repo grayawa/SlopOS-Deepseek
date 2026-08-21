@@ -4,17 +4,34 @@ SlopOS is a from-scratch x86-64 operating system that boots in QEMU. It is
 written independently (no copied kernel, distribution, or ported OS) and
 released under the 0BSD license.
 
-See [docs/STATUS.md](docs/STATUS.md) for an honest, up-to-date account of what
-is implemented and what is missing, and [docs/BUILD.md](docs/BUILD.md) for
-build and run instructions.
+## What it does
+
+* Boots in QEMU via GRUB/multiboot2 into 64-bit long mode.
+* Renders a graphical desktop with a framebuffer.
+* Runs an interactive window manager (draggable windows, close buttons,
+  taskbar, mouse and keyboard input).
+* Provides a terminal with a shell.
+* Runs user programs in ring 3 (separate address spaces) through the
+  Linux x86-64 syscall ABI.
+* Loads and runs static Linux x86-64 ELF executables.
 
 ## Quick start
 
 ```
-make            # builds build/slopos.iso
+make            # builds build/slopos.iso (kernel + hello + primes programs)
 ./run.sh        # boots it in QEMU (headless; serial -> build/serial.log)
 ./shot.sh       # captures build/screen.png via the QEMU monitor
 ```
+
+In the terminal shell, type `help` for built-in commands, or `run hello` /
+`run primes` to execute the bundled user programs.
+
+## Documentation
+
+* [docs/STATUS.md](docs/STATUS.md) — honest account of implemented and
+  missing functionality.
+* [docs/BUILD.md](docs/BUILD.md) — build and run instructions.
+* [LICENSE](LICENSE) — 0BSD.
 
 ## Goals
 

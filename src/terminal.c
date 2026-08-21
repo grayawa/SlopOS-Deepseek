@@ -126,6 +126,7 @@ static void shell_exec(terminal_t *t, const char *cmd)
         terminal_println(t, "  uptime     show system uptime");
         terminal_println(t, "  info       show system information");
         terminal_println(t, "  about      about SlopOS");
+        terminal_println(t, "  run PROG   run a user program (hello, primes)");
     } else if (strcmp(cmd, "clear") == 0) {
         terminal_clear(t);
     } else if (strncmp(cmd, "echo ", 5) == 0) {
