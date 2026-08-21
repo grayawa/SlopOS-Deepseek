@@ -26,12 +26,20 @@ The kernel, font, and ISR table are generated from `tools/genfont.py` and
 
 ```
 ./run.sh       # boots build/slopos.iso (headless, serial -> build/serial.log)
+./run-gui.sh   # boots build/slopos.iso in a visible GUI window
 ```
 
-`run.sh` launches QEMU with:
+`run.sh` launches QEMU headless with:
 * a serial console on `build/serial.log`,
 * a QEMU monitor socket at `build/qemu-monitor.sock`,
 * a VGA framebuffer (1024x768x32 via VBE).
+
+`run-gui.sh` is the same but opens a visible window (`-display gtk`). Click on
+the window to capture the keyboard and mouse (QEMU grabs input); press
+Ctrl+Alt+G to release the grab. If the GTK backend is unavailable, replace
+`-display gtk` with `-display sdl`. KVM is disabled by default because the
+build user may not have `/dev/kvm` access; QEMU falls back to software
+emulation.
 
 To interact with the running desktop, inject input via the QEMU monitor:
 
