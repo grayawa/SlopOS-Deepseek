@@ -5,6 +5,7 @@
 #include "lib.h"
 #include "port.h"
 #include "serial.h"
+#include "fs.h"
 #include "printk.h"
 
 /* ---- syscall MSR setup (Linux x86-64 style) ---- */
@@ -68,14 +69,16 @@ u64 syscall_dispatch(struct syscall_frame *f)
         return len;
     }
     case SYS_READ: {
-        /* fd=0: return EOF (0) for now */
-        return 0;
+        u64 fd = f->rdi, buf = f->rsi, len = f->rdx;
+        return (u64)fs_read((int)fd, (u8 *)buf, len);
     }
-    case SYS_OPEN:
-        /* not implemented: return -1 */
-        return (u64)-1;
-    case SYS_CLOSE:
-        return 0;
+    case SYS_OPEN: {
+        u64 name = f->rdi, flags = f->rsi;
+        return (u64)fs_open((const char *)name, (int)flags);
+    }
+    case SYS_CLOSE: {
+        return (u64)fs_close((int)f->rdi);
+    }
     case SYS_GETPID: {
         task_t *t = sched_current();
         return t ? (u64)t->id : 0;

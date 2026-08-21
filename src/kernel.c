@@ -17,6 +17,7 @@
 #include "task.h"
 #include "syscall.h"
 #include "program.h"
+#include "fs.h"
 
 /* ---- multiboot2 info parsing ---- */
 #define MB2_TAG_END         0
@@ -138,12 +139,23 @@ void kernel_main(u32 magic, u32 info_addr)
     syscall_init();
 
     u64 mod_addr = 0, mod_size = 0;
+    fs_init();
+    /* a small in-memory file for the cat demo */
+    static const char readme[] =
+        "Welcome to SlopOS!\n"
+        "This file lives in the SlopOS in-memory filesystem.\n"
+        "The 'cat' program opens and reads it via open/read/close syscalls.\n";
+    fs_register_file("/readme.txt", (const u8 *)readme, (u64)sizeof(readme) - 1);
+
     if (find_module((u64)info_addr, "hello", &mod_addr, &mod_size)) {
         program_register("hello", mod_addr, mod_size);
         program_run("hello");
     }
     if (find_module((u64)info_addr, "primes", &mod_addr, &mod_size)) {
         program_register("primes", mod_addr, mod_size);
+    }
+    if (find_module((u64)info_addr, "cat", &mod_addr, &mod_size)) {
+        program_register("cat", mod_addr, mod_size);
     }
 
     u64 last_redraw = 0;

@@ -46,6 +46,12 @@ QEMU (via serial logs and framebuffer screenshots).
 * User-mode entry via `iretq` (ring 3).
 * **Verified**: a user program runs in ring 3 and returns to the kernel.
 
+### Filesystem (in-memory ramfs)
+* A simple in-memory filesystem with `open`/`read`/`close`/`write`.
+* Files are registered by the kernel (currently `/readme.txt`).
+* **Verified**: the `cat` user program opens, reads, and prints a file via
+  the `open`/`read`/`close` syscalls.
+
 ### Linux x86-64 userspace ABI (partial)
 * `syscall` instruction entry (STAR/LSTAR/SFMASK MSRs, EFER.SCE).
 * Implemented syscalls: `write` (1), `read` (0, returns EOF), `open` (2),
@@ -74,7 +80,9 @@ QEMU (via serial logs and framebuffer screenshots).
   enabled, but the timer does not context-switch them.)
 
 ### Filesystem
-* No on-disk filesystem. User programs are delivered as multiboot2 modules.
+* Only an in-memory ramfs with a handful of pre-registered files. There is no
+  on-disk filesystem (no disk driver, no FAT/ext2/tarfs), and `write` to
+  regular files is not supported (read-only).
 
 ### Networking / storage / drivers
 * No disk, network, USB, or ATA drivers. Input is PS/2 only.
