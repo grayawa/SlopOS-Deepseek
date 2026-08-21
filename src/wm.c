@@ -23,6 +23,11 @@ static window_t *drag_win = NULL;
 static u32 cur_x, cur_y;
 static int cursor_on = 1;
 
+/* back buffer to avoid a blank flash while repainting */
+static u32 *backbuf;
+static u64 real_fb_addr;
+static u32 real_fb_pitch;
+
 void wm_set_bg(u32 color) { c_desktop = color; }
 void wm_set_accent(u32 color) { c_title = color; }
 
@@ -41,6 +46,9 @@ void wm_init(void)
     head = NULL;
     focused = NULL;
     cur_x = 512; cur_y = 384;
+
+    /* allocate a full-screen back buffer (avoids a blank flash on repaint) */
+    backbuf = (u32 *)malloc((size_t)g_fb.width * g_fb.height * 4);
 }
 
 static void set_client_geom(window_t *w)
@@ -197,6 +205,14 @@ static void draw_cursor(void)
 
 void wm_redraw(void)
 {
+    /* draw into a back buffer, then blit once (avoids a blank flash) */
+    real_fb_addr = g_fb.addr;
+    real_fb_pitch = g_fb.pitch;
+    if (backbuf) {
+        g_fb.addr = (u64)backbuf;
+        g_fb.pitch = g_fb.width * 4;
+    }
+
     fb_clear(c_desktop);
 
     /* draw windows from back (tail) to front (head) */
@@ -213,6 +229,13 @@ void wm_redraw(void)
 
     draw_taskbar();
     draw_cursor();
+
+    /* blit the back buffer to the real framebuffer */
+    if (backbuf) {
+        memcpy((void *)real_fb_addr, (void *)backbuf, (size_t)g_fb.height * g_fb.width * 4);
+        g_fb.addr = real_fb_addr;
+        g_fb.pitch = real_fb_pitch;
+    }
 }
 
 void wm_handle_mouse(mouse_state_t *ms)

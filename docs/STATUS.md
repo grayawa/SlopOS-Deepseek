@@ -35,6 +35,8 @@ QEMU (via serial logs and framebuffer screenshots).
 
 ### Graphical desktop
 * Window manager: draggable windows, title bars, close buttons, focus.
+* Double-buffered rendering (a full-screen back buffer is drawn then blitted
+  to the framebuffer), so repaints never flash a blank screen.
 * Taskbar with a running clock.
 * Terminal window with a scrollback buffer and a shell.
 * **Verified**: windows render, drag, and the terminal shell runs commands
