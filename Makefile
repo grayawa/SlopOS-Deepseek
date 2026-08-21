@@ -11,14 +11,22 @@ LDFLAGS := -m64 -ffreestanding -nostdlib -static -Wl,--build-id=none \
 BUILD   := build
 SRC     := src
 OBJS    := $(BUILD)/boot.o $(BUILD)/kernel.o $(BUILD)/serial.o \
-           $(BUILD)/fb.o $(BUILD)/font8x8.o
+           $(BUILD)/fb.o $(BUILD)/font8x8.o $(BUILD)/lib.o \
+           $(BUILD)/printk.o $(BUILD)/gdt.o $(BUILD)/idt.o \
+           $(BUILD)/isr.o $(BUILD)/isr_table.o $(BUILD)/timer.o \
+           $(BUILD)/pmm.o $(BUILD)/vmm.o $(BUILD)/keyboard.o \
+           $(BUILD)/mouse.o
 
-.PHONY: all iso run clean font
+.PHONY: all iso run clean font gen
 
 all: iso
 
 font:
 	python3 tools/genfont.py src/font8x8.c
+
+gen:
+	python3 tools/genfont.py src/font8x8.c
+	python3 tools/genisr.py src/isr_table.c src/isr_table.h
 
 $(BUILD)/%.o: $(SRC)/%.S
 	@mkdir -p $(BUILD)

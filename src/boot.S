@@ -215,6 +215,8 @@ gdt64_ptr:
 /* ---- BSS: page tables + boot stack ---- */
 .section .bss
 .align 4096
+.global pml4
+.global pdpt
 pml4:   .skip 4096
 pdpt:   .skip 4096
 pd0:    .skip 4096

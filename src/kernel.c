@@ -1,32 +1,35 @@
 #include "types.h"
 #include "serial.h"
 #include "fb.h"
+#include "printk.h"
+#include "lib.h"
+#include "port.h"
+#include "gdt.h"
+#include "idt.h"
+#include "timer.h"
+#include "pmm.h"
+#include "vmm.h"
+#include "keyboard.h"
+#include "mouse.h"
 
 /* ---- multiboot2 info parsing ---- */
 #define MB2_TAG_END         0
-#define MB2_TAG_CMDLINE     1
-#define MB2_TAG_BOOTLOADER  2
-#define MB2_TAG_MODULE      3
-#define MB2_TAG_BASIC_MEM   4
-#define MB2_TAG_MMAP        6
 #define MB2_TAG_FRAMEBUFFER 8
 
 struct mb2_tag {
     u32 type;
     u32 size;
-    /* data follows, aligned to 8 bytes */
 };
 
 struct mb2_info {
     u32 total_size;
     u32 reserved;
-    /* tags follow */
 };
 
 static u32 parse_framebuffer(u64 info_addr)
 {
     struct mb2_info *info = (struct mb2_info *)info_addr;
-    u64 ptr = info_addr + 8;                    /* skip total_size + reserved */
+    u64 ptr = info_addr + 8;
     u64 end = info_addr + info->total_size;
 
     while (ptr + 8 <= end) {
@@ -41,70 +44,106 @@ static u32 parse_framebuffer(u64 info_addr)
             u32 height = *(u32 *)(d + 24);
             u8 bpp = d[28];
             fb_init(addr, pitch, width, height, bpp);
-            serial_write("  framebuffer: ");
-            serial_dec(width);
-            serial_write("x");
-            serial_dec(height);
-            serial_write(" pitch=");
-            serial_dec(pitch);
-            serial_write(" bpp=");
-            serial_dec(bpp);
-            serial_write("\n");
+            kprintf("  framebuffer: %ux%u pitch=%u bpp=%u\n", width, height, pitch, bpp);
             return 1;
         }
-        /* advance to next tag, aligned to 8 bytes */
         ptr += (tag->size + 7) & ~7ULL;
     }
     return 0;
+}
+
+/* ---- desktop colors ---- */
+static u32 c_bg, c_taskbar, c_text, c_accent, c_cursor;
+
+static void draw_desktop(void)
+{
+    fb_clear(c_bg);
+    /* taskbar */
+    fb_fill_rect(0, g_fb.height - 28, g_fb.width, 28, c_taskbar);
+    fb_fill_rect(0, g_fb.height - 28, g_fb.width, 2, c_accent);
+    fb_draw_text(8, g_fb.height - 22, "SlopOS Desktop", c_text, c_taskbar);
+    fb_draw_text(g_fb.width - 150, g_fb.height - 22, "x86-64 | input test", c_text, c_taskbar);
 }
 
 void kernel_main(u32 magic, u32 info_addr)
 {
     serial_init();
     serial_write("\n==== SlopOS boot ====\n");
-    serial_write("  magic=");
-    serial_hex(magic);
-    serial_write(" info=");
-    serial_hex(info_addr);
-    serial_write("\n");
+    kprintf("  magic=0x%llx info=0x%llx\n", (u64)magic, (u64)info_addr);
 
     u32 fb_ok = parse_framebuffer((u64)info_addr);
-
     if (!fb_ok || !g_fb.mapped) {
-        serial_write("  ERROR: no framebuffer\n");
-        for (;;) { __asm__ volatile("hlt"); }
+        kputs("  ERROR: no framebuffer\n");
+        for (;;) hlt();
     }
 
-    /* draw boot screen */
-    u32 bg      = RGB(0x10, 0x14, 0x22);
-    u32 accent  = RGB(0x3f, 0x9a, 0xff);
-    u32 accent2 = RGB(0x26, 0xd9, 0x7c);
-    u32 white   = RGB(0xe8, 0xec, 0xf2);
+    /* init CPU + subsystems */
+    gdt_init();
+    kputs("  gdt ok\n");
+    idt_init();
+    kputs("  idt ok\n");
+    pmm_init((u64)info_addr);
+    vmm_init();
+    timer_init(100);
+    kbd_init();
+    mouse_init();
+    sti();
 
-    fb_clear(bg);
+    c_bg      = RGB(0x1a, 0x1e, 0x2b);
+    c_taskbar = RGB(0x24, 0x2a, 0x3b);
+    c_text    = RGB(0xd8, 0xde, 0xe9);
+    c_accent  = RGB(0x3f, 0x9a, 0xff);
+    c_cursor  = RGB(0xe8, 0xec, 0xf2);
 
-    /* top accent bar */
-    fb_fill_rect(0, 0, g_fb.width, 6, accent);
-    fb_fill_rect(0, 6, g_fb.width, 2, accent2);
+    draw_desktop();
 
-    /* "SlopOS" wordmark */
-    fb_draw_text_transparent(40, 80, "SlopOS", accent);
-    fb_draw_text(40, 100, "A from-scratch operating system", white, bg);
+    u64 last_print = 0;
+    struct key_event kev;
+    static u32 log_y = 8;
+    static u32 log_x = 8;
+    u32 px = g_fb.width / 2, py = g_fb.height / 2;
+    int cursor_valid = 0;
 
-    /* three feature blocks */
-    fb_fill_rect(40, 160, 280, 120, RGB(0x1a, 0x21, 0x36));
-    fb_fill_rect(340, 160, 280, 120, RGB(0x1a, 0x21, 0x36));
-    fb_fill_rect(640, 160, 280, 120, RGB(0x1a, 0x21, 0x36));
-    fb_draw_text(60, 180, "x86-64 long mode", white, bg);
-    fb_draw_text(360, 180, "Multitasking", white, bg);
-    fb_draw_text(660, 180, "Linux ABI", white, bg);
-
-    /* status footer */
-    fb_draw_text(40, g_fb.height - 40, "Boot OK - framebuffer active", accent2, bg);
-
-    serial_write("  boot complete, entering idle\n");
+    kprintf("  boot complete\n");
 
     for (;;) {
-        __asm__ volatile("hlt");
+        /* keyboard */
+        while (kbd_get_event(&kev)) {
+            if (kev.press) {
+                if (kev.ascii == '\n') {
+                    log_y += 16;
+                    log_x = 8;
+                } else if (kev.ascii == '\b') {
+                    if (log_x > 8) log_x -= 8;
+                } else if (kev.ascii >= 32) {
+                    fb_draw_char(log_x, log_y, (char)kev.ascii, c_text, c_bg);
+                    log_x += 8;
+                }
+                if (log_y > g_fb.height - 60) {
+                    log_y = 8;
+                    /* clear log region */
+                    fb_fill_rect(0, 8, g_fb.width, g_fb.height - 60, c_bg);
+                }
+            }
+        }
+
+        /* mouse cursor */
+        mouse_state_t ms;
+        mouse_get_state(&ms);
+        if (cursor_valid) {
+            fb_fill_rect(px, py, 12, 16, c_bg);
+        }
+        px = ms.x; py = ms.y;
+        fb_fill_rect(px, py, 12, 16, c_cursor);
+        fb_fill_rect(px, py, 12, 2, c_accent);
+        cursor_valid = 1;
+
+        /* timer tick report */
+        if (timer_ticks() - last_print >= 100) {
+            last_print = timer_ticks();
+            kprintf("[timer] ticks=%llu\n", timer_ticks());
+        }
+
+        __asm__ volatile ("hlt");
     }
 }
