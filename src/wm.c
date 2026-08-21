@@ -142,14 +142,20 @@ static void draw_close_button(window_t *w, int hover)
     int bx = w->x + w->w - 22;
     int by = w->y + 2;
     fb_fill_rect(bx, by, 18, TITLE_BAR_H - 4, hover ? c_close_hover : c_close);
-    fb_draw_text_transparent(bx + 3, by + 4, "x", RGB(0xff, 0xff, 0xff));
+    /* draw an "x" as two diagonals */
+    u32 xc = RGB(0xff, 0xff, 0xff);
+    int i;
+    for (i = 0; i < 5; i++) {
+        fb_put_pixel(bx + 5 + i, by + 5 + i, xc);
+        fb_put_pixel(bx + 9 - i, by + 5 + i, xc);
+    }
 }
 
 void wm_draw_titlebar(window_t *w)
 {
     u32 tc = w->focused ? c_title : c_title_inactive;
     fb_fill_rect(w->x, w->y, w->w, TITLE_BAR_H, tc);
-    fb_draw_text(w->x + 8, w->y + 7, w->title, c_titletext, tc);
+    fb_draw_text(w->x + 8, w->y + 3, w->title, c_titletext, tc);
     draw_close_button(w, 0);
 }
 

@@ -11,7 +11,7 @@ LDFLAGS := -m64 -ffreestanding -nostdlib -static -Wl,--build-id=none \
 BUILD   := build
 SRC     := src
 OBJS    := $(BUILD)/boot.o $(BUILD)/kernel.o $(BUILD)/serial.o \
-           $(BUILD)/fb.o $(BUILD)/font8x8.o $(BUILD)/lib.o \
+           $(BUILD)/fb.o $(BUILD)/font8x16.o $(BUILD)/lib.o \
            $(BUILD)/printk.o $(BUILD)/gdt.o $(BUILD)/idt.o \
            $(BUILD)/isr.o $(BUILD)/isr_table.o $(BUILD)/timer.o \
            $(BUILD)/pmm.o $(BUILD)/vmm.o $(BUILD)/keyboard.o \
@@ -25,10 +25,10 @@ OBJS    := $(BUILD)/boot.o $(BUILD)/kernel.o $(BUILD)/serial.o \
 all: iso
 
 font:
-	python3 tools/genfont.py src/font8x8.c
+	python3 tools/genfont16.py src/font8x16.c
 
 gen:
-	python3 tools/genfont.py src/font8x8.c
+	python3 tools/genfont16.py src/font8x16.c
 	python3 tools/genisr.py src/isr_table.c src/isr_table.h
 
 prog: $(BUILD)/hello.elf $(BUILD)/primes.elf $(BUILD)/cat.elf
@@ -44,7 +44,7 @@ $(BUILD)/primes.elf: programs/primes.c
 	@mkdir -p $(BUILD)
 	$(CC) -m64 -ffreestanding -fno-pie -no-pie -fno-stack-protector -fno-builtin \
 	    -fno-asynchronous-unwind-tables -nostdlib -static \
-	    -Wl,-Ttext=0x400000 -Wl,-e,_start -Wl,--build-id=none -O2 \
+	    -Wl,-Ttext=0x400000 -Wl,-e,_start -Wl,--build-id=none -O0 \
 	    -o $@ programs/primes.c
 
 $(BUILD)/cat.elf: programs/cat.c

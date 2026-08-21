@@ -95,11 +95,11 @@ static void about_draw(window_t *w)
     u32 ac = RGB(0x3f, 0x9a, 0xff);
     u32 gr = RGB(0x7a, 0x84, 0x99);
     fb_fill_rect(w->cx, w->cy, w->cw, w->ch, bg);
-    fb_draw_text(w->cx + 8, w->cy + 8, "SlopOS 0.1", ac, bg);
-    fb_draw_text(w->cx + 8, w->cy + 24, "From-scratch x86-64 OS", fg, bg);
-    fb_draw_text(w->cx + 8, w->cy + 40, "Boots in QEMU (multiboot2)", gr, bg);
-    fb_draw_text(w->cx + 8, w->cy + 56, "Long mode, paging, interrupts", gr, bg);
-    fb_draw_text(w->cx + 8, w->cy + 72, "License: 0BSD", gr, bg);
+    fb_draw_text(w->cx + 8, w->cy + 6, "SlopOS 0.1", ac, bg);
+    fb_draw_text(w->cx + 8, w->cy + 26, "From-scratch x86-64 OS", fg, bg);
+    fb_draw_text(w->cx + 8, w->cy + 46, "Boots in QEMU (multiboot2)", gr, bg);
+    fb_draw_text(w->cx + 8, w->cy + 66, "Long mode, paging, interrupts", gr, bg);
+    fb_draw_text(w->cx + 8, w->cy + 86, "License: 0BSD", gr, bg);
 }
 
 void kernel_main(u32 magic, u32 info_addr)

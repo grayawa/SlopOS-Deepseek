@@ -158,7 +158,7 @@ static void term_draw(window_t *w)
 {
     terminal_t *t = (terminal_t *)w->user;
     t->cols = w->cw / 8;
-    t->rows = w->ch / 8;
+    t->rows = w->ch / 16;
     if (t->cols > TERM_COLS) t->cols = TERM_COLS;
 
     /* fill client background */
@@ -169,16 +169,15 @@ static void term_draw(window_t *w)
     for (i = 0; i < t->rows; i++) {
         int li = start + i;
         if (li < t->nlines) {
-            fb_draw_text(w->cx, w->cy + i * 8, t->lines[li], RGB(0xd8, 0xde, 0xe9), RGB(0x14, 0x18, 0x24));
+            fb_draw_text(w->cx, w->cy + i * 16, t->lines[li], RGB(0xd8, 0xde, 0xe9), RGB(0x14, 0x18, 0x24));
         }
     }
     /* cursor */
     int cr = t->cur_line - start;
     if (cr >= 0 && cr < t->rows) {
         int cx = w->cx + t->cur_col * 8;
-        int cy = w->cy + cr * 8;
-        fb_fill_rect(cx, cy, 8, 8, RGB(0x3f, 0x9a, 0xff));
-        /* draw the character at the cursor on top */
+        int cy = w->cy + cr * 16;
+        fb_fill_rect(cx, cy, 8, 16, RGB(0x3f, 0x9a, 0xff));
         char ch = t->lines[t->cur_line][t->cur_col];
         if (ch >= 0x20 && ch < 0x7F)
             fb_draw_char(cx, cy, ch, RGB(0x00, 0x00, 0x00), RGB(0x3f, 0x9a, 0xff));
@@ -221,7 +220,7 @@ terminal_t *terminal_create(int x, int y, int w, int h, const char *title)
     t->win = wm_create_window(x, y, w, h, title, term_draw, term_key, NULL, NULL);
     t->win->user = t;
     t->cols = (w - 2) / 8;
-    t->rows = (h - TITLE_BAR_H - 1) / 8;
+    t->rows = (h - TITLE_BAR_H - 1) / 16;
     t->lines[0][0] = '\0';
     t->nlines = 1;
     t->cur_line = 0;

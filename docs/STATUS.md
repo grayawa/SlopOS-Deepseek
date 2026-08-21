@@ -27,7 +27,7 @@ QEMU (via serial logs and framebuffer screenshots).
 * SSE/FPU enabled for user programs.
 
 ### Graphics and input
-* Framebuffer drawing library (pixels, rectangles, 8x8 bitmap text).
+* Framebuffer drawing library (pixels, rectangles, 8x16 bitmap text).
 * PS/2 keyboard driver (scancode set 1, shift/caps-lock).
 * PS/2 mouse driver (packet parsing, absolute cursor, buttons).
 * **Verified**: keyboard echoes typed characters; mouse cursor tracks

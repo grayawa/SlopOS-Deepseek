@@ -1,5 +1,5 @@
 #include "fb.h"
-#include "font8x8.h"
+#include "font8x16.h"
 
 framebuffer_t g_fb;
 
@@ -66,8 +66,8 @@ void fb_draw_char(u32 x, u32 y, char c, u32 fg, u32 bg)
     const u8 *glyph;
     if ((u8)c < 0x20 || (u8)c > 0x7E)
         c = '?';
-    glyph = font8x8[(u8)c - 0x20];
-    for (row = 0; row < 8; row++) {
+    glyph = font8x16[(u8)c - 0x20];
+    for (row = 0; row < 16; row++) {
         u8 bits = glyph[row];
         for (col = 0; col < 8; col++) {
             u32 color = (bits & (0x80 >> col)) ? fg : bg;
@@ -92,8 +92,8 @@ void fb_draw_text_transparent(u32 x, u32 y, const char *s, u32 fg)
         char c = *s++;
         if ((u8)c < 0x20 || (u8)c > 0x7E)
             c = '?';
-        glyph = font8x8[(u8)c - 0x20];
-        for (row = 0; row < 8; row++) {
+        glyph = font8x16[(u8)c - 0x20];
+        for (row = 0; row < 16; row++) {
             u8 bits = glyph[row];
             for (col = 0; col < 8; col++) {
                 if (bits & (0x80 >> col))
